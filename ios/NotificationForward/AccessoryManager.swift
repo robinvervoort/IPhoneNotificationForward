@@ -50,7 +50,7 @@ final class AccessoryManager {
         let descriptor = ASDiscoveryDescriptor()
         descriptor.bluetoothServiceUUID = CBUUID(string: BridgeProtocol.serviceUUID)
         let image = UIImage(systemName: "house.and.flag.fill") ?? UIImage()
-        let item = ASPickerDisplayItem(name: "DeskBot Bridge", productImage: image, descriptor: descriptor)
+        let item = ASPickerDisplayItem(name: "Notification Forward Bridge", productImage: image, descriptor: descriptor)
         session.showPicker(for: [item]) { [weak self] error in
             if let error {
                 Task { @MainActor in self?.lastError = error.localizedDescription }

@@ -2,7 +2,7 @@ __pycache__/
 .pytest_cache/
 *.pyc
 ios/*.xcodeproj/
-ios/DeskBot/Info.plist
+ios/NotificationForward/Info.plist
 ios/*/Info.plist
 ios/*/*.entitlements
 xcuserdata/

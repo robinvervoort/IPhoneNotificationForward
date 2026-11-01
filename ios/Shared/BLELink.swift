@@ -6,7 +6,7 @@ import Foundation
 /// All CoreBluetooth state lives on `queue`; public async methods hop onto it.
 final class BLELink: NSObject, @unchecked Sendable {
     private let peripheralID: UUID
-    private let queue = DispatchQueue(label: "be.robinvervoort.deskbot.ble")
+    private let queue = DispatchQueue(label: "be.robinvervoort.notificationforward.ble")
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
     private var rx: CBCharacteristic?

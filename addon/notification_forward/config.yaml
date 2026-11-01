@@ -1,6 +1,6 @@
-name: DeskBot Notification Bridge
+name: iPhone Notification Forward
 version: "0.1.0"
-slug: deskbot_notify
+slug: notification_forward
 description: Receive your iPhone's notifications in Home Assistant via Apple notification forwarding (EU)
 url: https://github.com/robinvervoort/IPhoneNotificationForward
 arch:
@@ -13,10 +13,10 @@ host_dbus: true
 homeassistant_api: true
 options:
   adapter: hci0
-  device_name: DeskBot
+  device_name: NotifFwd
   event_type: iphone_notification
   sensor_entity: sensor.iphone_last_notification
-  inbound_event_type: deskbot_bridge_inbound
+  inbound_event_type: notification_forward_inbound
   log_level: info
 schema:
   adapter: str

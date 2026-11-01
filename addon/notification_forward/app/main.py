@@ -16,16 +16,16 @@ from .ha import HomeAssistant, NotificationSink
 OPTIONS_PATH = "/data/options.json"
 STATE_PATH = "/data/state.json"
 
-log = logging.getLogger("deskbot")
+log = logging.getLogger("notification_forward")
 
 
 def load_options() -> dict:
     defaults = {
         "adapter": "hci0",
-        "device_name": "DeskBot",
+        "device_name": "NotifFwd",
         "event_type": "iphone_notification",
         "sensor_entity": "sensor.iphone_last_notification",
-        "inbound_event_type": "deskbot_bridge_inbound",
+        "inbound_event_type": "notification_forward_inbound",
         "log_level": "info",
     }
     if os.path.exists(OPTIONS_PATH):

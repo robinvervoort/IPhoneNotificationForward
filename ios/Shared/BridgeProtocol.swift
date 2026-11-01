@@ -1,7 +1,7 @@
 import Foundation
 
 /// Wire protocol between the iPhone extensions and the Home Assistant bridge.
-/// Keep in sync with `addon/deskbot_notify/app/protocol.py`.
+/// Keep in sync with `addon/notification_forward/app/protocol.py`.
 enum BridgeProtocol {
     static let serviceUUID = "46B6C6E3-47D4-4FD7-98B7-D41D1109B69B"
     static let rxUUID = "297E3C45-E532-40FD-8303-0C6E857AA0F2" // write: iPhone -> bridge

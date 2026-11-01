@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct DeskBotApp: App {
+struct NotificationForwardApp: App {
     @State private var manager = AccessoryManager()
 
     var body: some Scene {

@@ -1,4 +1,4 @@
-# DeskBot Notification Bridge
+# iPhone Notification Forward
 
 Acts as the Bluetooth "accessory" for Apple's iPhone notification forwarding
 and turns every forwarded notification into a Home Assistant event and sensor.
@@ -11,10 +11,10 @@ webhook automation, iPhone app).
 | Option | Default | Meaning |
 |---|---|---|
 | `adapter` | `hci0` | Bluetooth adapter to advertise on |
-| `device_name` | `DeskBot` | Advertised name (keep it short, max ~8 chars) |
+| `device_name` | `NotifFwd` | Advertised name (keep it short, max ~8 chars) |
 | `event_type` | `iphone_notification` | Event fired per notification |
 | `sensor_entity` | `sensor.iphone_last_notification` | Sensor updated with the latest notification |
-| `inbound_event_type` | `deskbot_bridge_inbound` | Event your webhook automation fires for internet deliveries |
+| `inbound_event_type` | `notification_forward_inbound` | Event your webhook automation fires for internet deliveries |
 | `log_level` | `info` | `debug`, `info`, `warning`, `error` |
 
 ## Keys

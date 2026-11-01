@@ -1,5 +1,5 @@
 # Generate the Xcode project with:  brew install xcodegen && xcodegen
-name: DeskBot
+name: NotificationForward
 options:
   bundleIdPrefix: be.robinvervoort
   deploymentTarget:
@@ -18,26 +18,26 @@ settings:
 accessoryPlist: &accessoryPlist
   NSAccessorySetupKitSupports: [Bluetooth]
   NSAccessorySetupBluetoothServices: ["46B6C6E3-47D4-4FD7-98B7-D41D1109B69B"]
-  NSBluetoothAlwaysUsageDescription: DeskBot talks to your Home Assistant Bluetooth bridge.
+  NSBluetoothAlwaysUsageDescription: Notification Forward talks to your Home Assistant Bluetooth bridge.
 
 targets:
-  DeskBot:
+  NotificationForward:
     type: application
     platform: iOS
-    sources: [DeskBot, Shared]
+    sources: [NotificationForward, Shared]
     info:
-      path: DeskBot/Info.plist
+      path: NotificationForward/Info.plist
       properties:
         <<: *accessoryPlist
-        CFBundleDisplayName: DeskBot
+        CFBundleDisplayName: NotifyFwd
         UILaunchScreen: {}
     entitlements:
-      path: DeskBot/DeskBot.entitlements
+      path: NotificationForward/NotificationForward.entitlements
       properties:
-        com.apple.security.application-groups: [group.be.robinvervoort.deskbot]
+        com.apple.security.application-groups: [group.be.robinvervoort.notificationforward]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.deskbot
+        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.notificationforward
     dependencies:
       - target: DataProvider
       - target: TransportSecurity
@@ -50,7 +50,7 @@ targets:
     info:
       path: DataProvider/Info.plist
       properties:
-        CFBundleDisplayName: DeskBot Data Provider
+        CFBundleDisplayName: Notification Forward Data Provider
         EXAppExtensionAttributes:
           EXExtensionPointIdentifier: com.apple.accessory-data-provider
           EXCapabilities: [AccessoryNotifications.NotificationsForwarding]
@@ -58,10 +58,10 @@ targets:
       path: DataProvider/DataProvider.entitlements
       properties:
         com.apple.developer.accessory-data-provider: true
-        com.apple.security.application-groups: [group.be.robinvervoort.deskbot]
+        com.apple.security.application-groups: [group.be.robinvervoort.notificationforward]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.deskbot.dataprovider
+        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.notificationforward.dataprovider
 
   TransportSecurity:
     type: extensionkit-extension
@@ -71,17 +71,17 @@ targets:
       path: TransportSecurity/Info.plist
       properties:
         <<: *accessoryPlist
-        CFBundleDisplayName: DeskBot Transport Security
+        CFBundleDisplayName: Notification Forward Transport Security
         EXAppExtensionAttributes:
           EXExtensionPointIdentifier: com.apple.accessory-transport-security
     entitlements:
       path: TransportSecurity/TransportSecurity.entitlements
       properties:
         com.apple.developer.accessory-transport-security: true
-        com.apple.security.application-groups: [group.be.robinvervoort.deskbot]
+        com.apple.security.application-groups: [group.be.robinvervoort.notificationforward]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.deskbot.transportsecurity
+        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.notificationforward.transportsecurity
 
   Transport:
     type: extensionkit-extension
@@ -91,7 +91,7 @@ targets:
       path: Transport/Info.plist
       properties:
         <<: *accessoryPlist
-        CFBundleDisplayName: DeskBot Transport
+        CFBundleDisplayName: Notification Forward Transport
         UIBackgroundModes: [bluetooth-central]
         EXAppExtensionAttributes:
           EXExtensionPointIdentifier: com.apple.accessory-transport-extension
@@ -99,7 +99,7 @@ targets:
       path: Transport/Transport.entitlements
       properties:
         com.apple.developer.accessory-transport-extension: true
-        com.apple.security.application-groups: [group.be.robinvervoort.deskbot]
+        com.apple.security.application-groups: [group.be.robinvervoort.notificationforward]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.deskbot.transport
+        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.notificationforward.transport

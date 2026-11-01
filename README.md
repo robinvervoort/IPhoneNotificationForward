@@ -9,7 +9,7 @@ iPhone ────────────────────────�
   │  Apple encrypts every           (Proxmox → HA VM)                   webhook automation
   │  notification for the bridge         │                                    │ HA event
   ▼                                      ▼                                    ▼
-DeskBot app + 3 extensions      DeskBot Notification Bridge add-on (decrypts)
+iOS app + 3 extensions          iPhone Notification Forward add-on (decrypts)
                                          │
                                          ├─ event  iphone_notification
                                          └─ sensor.iphone_last_notification
@@ -22,7 +22,7 @@ Assistant's webhook only ever handle ciphertext.
 | Folder | What |
 |---|---|
 | `ios/` | iPhone companion app (SwiftUI) + Data Provider, Transport Security and Transport extensions |
-| `addon/deskbot_notify/` | Home Assistant add-on: BLE peripheral, key exchange, decryption, HA events/sensor |
+| `addon/notification_forward/` | Home Assistant add-on: BLE peripheral, key exchange, decryption, HA events/sensor |
 | `repository.yaml` | Makes this repo installable as a Home Assistant add-on repository |
 
 ## Requirements
@@ -49,9 +49,9 @@ Assistant's webhook only ever handle ciphertext.
 
 1. **Settings → Add-ons → Add-on store → ⋮ → Repositories** → add
    `https://github.com/robinvervoort/IPhoneNotificationForward` (the repo must be public, or
-   copy `addon/deskbot_notify` to `/addons/` on the HA host as a local add-on).
-2. Install **DeskBot Notification Bridge** and start it. The log should say
-   `Advertising as 'DeskBot'`.
+   copy `addon/notification_forward` to `/addons/` on the HA host as a local add-on).
+2. Install **iPhone Notification Forward** and start it. The log should say
+   `Advertising as 'NotifFwd'`.
 
 ## 3. Webhook for delivery while away
 
@@ -60,7 +60,7 @@ long random webhook ID; it is the only thing protecting the URL from spam
 (the payload itself is encrypted and authenticated).
 
 ```yaml
-alias: DeskBot – relay iPhone notifications from the internet
+alias: Notification Forward – relay iPhone notifications from the internet
 mode: queued
 max: 50
 triggers:
@@ -69,7 +69,7 @@ triggers:
     allowed_methods: [POST]
     local_only: false
 actions:
-  - event: deskbot_bridge_inbound
+  - event: notification_forward_inbound
     event_data:
       data: "{{ trigger.json.data }}"
       session_id: "{{ trigger.json.session_id }}"
@@ -83,13 +83,13 @@ Make sure your NGINX proxy forwards `/api/webhook/`, which it does by default.
 
 ```sh
 brew install xcodegen
-cd ios && xcodegen && open DeskBot.xcodeproj
+cd ios && xcodegen && open NotificationForward.xcodeproj
 ```
 
 1. Set your team on all four targets (or `DEVELOPMENT_TEAM` in `project.yml`).
-   Register the app group `group.be.robinvervoort.deskbot`.
+   Register the app group `group.be.robinvervoort.notificationforward`.
 2. Run on your iPhone.
-3. In the app, stand near the dongle: **Pair bridge** → pick *DeskBot Bridge*.
+3. In the app, stand near the dongle: **Pair bridge** → pick *Notification Forward Bridge*.
 4. **Allow notification forwarding** → choose all apps or a subset.
 5. Enter the webhook ID under *Away from home* → **Save**.
 
@@ -127,7 +127,7 @@ triggers:
 ## Status and caveats
 
 - The add-on's cryptography is unit-tested against the `cryptography` library's
-  HPKE implementation and RFC 9180 vectors (`cd addon/deskbot_notify && pytest`).
+  HPKE implementation and RFC 9180 vectors (`cd addon/notification_forward && pytest`).
 - **The iOS code has not been compiled yet.** It was written against Apple's
   documentation, which is new and in places inconsistent. Expect to fix small
   API mismatches in Xcode. Things to check first:

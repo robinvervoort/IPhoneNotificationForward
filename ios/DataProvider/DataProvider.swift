@@ -17,7 +17,7 @@ struct DataProvider: AccessoryDataProvider {
     }
 }
 
-/// JSON schema v1, decoded by `addon/deskbot_notify/app/ha.py`.
+/// JSON schema v1, decoded by `addon/notification_forward/app/ha.py`.
 struct NotificationPayload: Encodable {
     var v = 1
     var action: String

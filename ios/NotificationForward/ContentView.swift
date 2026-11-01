@@ -47,7 +47,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationTitle("DeskBot")
+            .navigationTitle("Notification Forward")
             .refreshable { await manager.refreshStatus() }
             .onAppear {
                 savedURL = SharedSettings.webhookURL
