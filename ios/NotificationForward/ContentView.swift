@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AccessoryManager.self) private var manager
-    @State private var webhookID = ""
+    @State private var webhookText = ""
     @State private var savedURL: URL?
 
     var body: some View {
@@ -25,12 +25,13 @@ struct ContentView: View {
                 }
 
                 Section {
-                    TextField("Webhook ID", text: $webhookID)
+                    TextField("https://your-ha.example.com/api/webhook/…", text: $webhookText)
+                        .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .onSubmit(saveWebhook)
                     Button("Save", action: saveWebhook)
-                        .disabled(webhookID.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(parsedWebhookURL == nil)
                     if let url = savedURL {
                         Text(url.absoluteString).font(.footnote).foregroundStyle(.secondary)
                     }
@@ -51,15 +52,22 @@ struct ContentView: View {
             .refreshable { await manager.refreshStatus() }
             .onAppear {
                 savedURL = SharedSettings.webhookURL
-                webhookID = savedURL?.lastPathComponent ?? ""
+                webhookText = savedURL?.absoluteString ?? ""
             }
         }
     }
 
     private func saveWebhook() {
-        let id = webhookID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else { return }
-        SharedSettings.webhookURL = URL(string: SharedSettings.defaultWebhookBase + id)
-        savedURL = SharedSettings.webhookURL
+        guard let url = parsedWebhookURL else { return }
+        SharedSettings.webhookURL = url
+        savedURL = url
+    }
+
+    /// Accepts only a full https URL to a Home Assistant webhook.
+    private var parsedWebhookURL: URL? {
+        let text = webhookText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: text), url.scheme == "https", url.host != nil,
+              url.path.contains("/api/webhook/") else { return nil }
+        return url
     }
 }

@@ -1,5 +1,6 @@
-ARG BUILD_FROM
-FROM ${BUILD_FROM}
+# Plain Python base image (multi-arch: amd64 + aarch64). The Supervisor's
+# default base image has no Python, and build.yaml is deprecated.
+FROM python:3.13-slim-bookworm
 
 WORKDIR /opt/notification_forward
 COPY requirements.txt .

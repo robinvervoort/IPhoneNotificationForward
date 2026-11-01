@@ -5,7 +5,7 @@ Forward every iPhone notification to Home Assistant using Apple's official
 
 ```
            at home (Bluetooth)                       away (internet)
-iPhone ──────────────────────────► USB BT dongle     iPhone ──HTTPS──► ha.robinvervoort.be
+iPhone ──────────────────────────► USB BT dongle     iPhone ──HTTPS──► your HA (remote URL)
   │  Apple encrypts every           (Proxmox → HA VM)                   webhook automation
   │  notification for the bridge         │                                    │ HA event
   ▼                                      ▼                                    ▼
@@ -76,7 +76,7 @@ actions:
       push_token: "{{ trigger.json.push_token }}"
 ```
 
-The webhook URL will be `https://ha.robinvervoort.be/api/webhook/<your-random-webhook-id>`.
+The webhook URL is `https://<your-ha-domain>/api/webhook/<your-random-webhook-id>`.
 Make sure your NGINX proxy forwards `/api/webhook/`, which it does by default.
 
 ## 4. Build and install the iPhone app
@@ -91,7 +91,7 @@ cd ios && xcodegen && open NotificationForward.xcodeproj
 2. Run on your iPhone.
 3. In the app, stand near the dongle: **Pair bridge** → pick *Notification Forward Bridge*.
 4. **Allow notification forwarding** → choose all apps or a subset.
-5. Enter the webhook ID under *Away from home* → **Save**.
+5. Enter the full webhook URL under *Away from home* → **Save**.
 
 iOS now runs the key exchange with the add-on (log: `Key exchange complete (xWing)`).
 After that, notifications arrive over Bluetooth at home and over the

@@ -3,7 +3,6 @@ import Foundation
 /// Settings shared between the app and its extensions through the app group.
 enum SharedSettings {
     static let appGroup = "group.be.robinvervoort.notificationforward"
-    static let defaultWebhookBase = "https://ha.robinvervoort.be/api/webhook/"
 
     private static var defaults: UserDefaults {
         UserDefaults(suiteName: appGroup) ?? .standard
