@@ -1,0 +1,9 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+ios/*.xcodeproj/
+ios/NotificationForward/Info.plist
+ios/*/Info.plist
+ios/*/*.entitlements
+xcuserdata/
+.DS_Store

@@ -1,0 +1,105 @@
+# Generate the Xcode project with:  brew install xcodegen && xcodegen
+name: NotificationForward
+options:
+  bundleIdPrefix: be.robinvervoort
+  deploymentTarget:
+    iOS: "26.5"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""          # set your Apple developer team ID
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1"   # iPhone only (framework requirement)
+
+# Keys every target that touches the bridge needs, so AccessorySetupKit
+# grants them the same approved accessory.
+accessoryPlist: &accessoryPlist
+  NSAccessorySetupKitSupports: [Bluetooth]
+  NSAccessorySetupBluetoothServices: ["46B6C6E3-47D4-4FD7-98B7-D41D1109B69B"]
+  NSBluetoothAlwaysUsageDescription: Notification Forward talks to your Home Assistant Bluetooth bridge.
+
+targets:
+  NotificationForward:
+    type: application
+    platform: iOS
+    sources: [NotificationForward, Shared]
+    info:
+      path: NotificationForward/Info.plist
+      properties:
+        <<: *accessoryPlist
+        CFBundleDisplayName: NotifyFwd
+        UILaunchScreen: {}
+    entitlements:
+      path: NotificationForward/NotificationForward.entitlements
+      properties:
+        com.apple.security.application-groups: [group.be.robinvervoort.notificationforward]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.notificationforward
+    dependencies:
+      - target: DataProvider
+      - target: TransportSecurity
+      - target: Transport
+
+  DataProvider:
+    type: extensionkit-extension
+    platform: iOS
+    sources: [DataProvider, Shared]
+    info:
+      path: DataProvider/Info.plist
+      properties:
+        CFBundleDisplayName: Notification Forward Data Provider
+        EXAppExtensionAttributes:
+          EXExtensionPointIdentifier: com.apple.accessory-data-provider
+          EXCapabilities: [AccessoryNotifications.NotificationsForwarding]
+    entitlements:
+      path: DataProvider/DataProvider.entitlements
+      properties:
+        com.apple.developer.accessory-data-provider: true
+        com.apple.security.application-groups: [group.be.robinvervoort.notificationforward]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.notificationforward.dataprovider
+
+  TransportSecurity:
+    type: extensionkit-extension
+    platform: iOS
+    sources: [TransportSecurity, Shared]
+    info:
+      path: TransportSecurity/Info.plist
+      properties:
+        <<: *accessoryPlist
+        CFBundleDisplayName: Notification Forward Transport Security
+        EXAppExtensionAttributes:
+          EXExtensionPointIdentifier: com.apple.accessory-transport-security
+    entitlements:
+      path: TransportSecurity/TransportSecurity.entitlements
+      properties:
+        com.apple.developer.accessory-transport-security: true
+        com.apple.security.application-groups: [group.be.robinvervoort.notificationforward]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.notificationforward.transportsecurity
+
+  Transport:
+    type: extensionkit-extension
+    platform: iOS
+    sources: [Transport, Shared]
+    info:
+      path: Transport/Info.plist
+      properties:
+        <<: *accessoryPlist
+        CFBundleDisplayName: Notification Forward Transport
+        UIBackgroundModes: [bluetooth-central]
+        EXAppExtensionAttributes:
+          EXExtensionPointIdentifier: com.apple.accessory-transport-extension
+    entitlements:
+      path: Transport/Transport.entitlements
+      properties:
+        com.apple.developer.accessory-transport-extension: true
+        com.apple.security.application-groups: [group.be.robinvervoort.notificationforward]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.notificationforward.transport
