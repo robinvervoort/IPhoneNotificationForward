@@ -53,9 +53,9 @@ final class SecurityEventHandler: AccessorySecuritySession.EventHandler {
             )
             try session.sendSecurityMessage(message)
         } catch {
-            // TODO: pass a matching AccessorySecuritySession.Error to session.cancel(error:)
             link?.disconnect()
             link = nil
+            session.cancel(error: .unknown)
         }
     }
 

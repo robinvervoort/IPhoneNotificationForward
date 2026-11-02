@@ -119,9 +119,11 @@ internet elsewhere.
 Every notification fires an `iphone_notification` event:
 
 ```json
-{"v": 1, "action": "add", "id": "…", "app": "WhatsApp", "title": "Mom",
+{"v": 1, "action": "add", "id": "…", "bundle_id": "net.whatsapp.WhatsApp",
+ "app": "WhatsApp", "title": "Mom",
  "body": "Dinner at 7?", "subtitle": null, "summary": null, "thread": "…",
- "date": "2026-10-31T18:02:11Z", "should_alert": true, "focus_suppressed": false,
+ "date": "2026-10-31T18:02:11Z", "attributes": ["time_sensitive"],
+ "should_alert": true, "focus_suppressed": false,
  "transport": "bluetooth"}
 ```
 

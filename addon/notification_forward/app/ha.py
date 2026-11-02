@@ -84,7 +84,8 @@ class NotificationSink:
 
     async def handle(self, note: dict) -> None:
         action = note.get("action", "add")
-        nid = str(note.get("id", ""))
+        # Notification IDs are only unique per app, so key by app + ID.
+        nid = f'{note.get("bundle_id") or ""}/{note.get("id", "")}'
         if action in ("add", "update"):
             self.active[nid] = {k: note.get(k) for k in ("app", "title", "body")}
             while len(self.active) > self.MAX_ACTIVE:

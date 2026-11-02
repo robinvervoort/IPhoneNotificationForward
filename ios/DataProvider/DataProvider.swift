@@ -2,6 +2,7 @@ import AccessoryNotifications
 import AccessoryTransportExtension
 import ExtensionFoundation
 import Foundation
+import Synchronization
 
 /// Receives forwarded iOS notifications (in plaintext, inside this sandboxed
 /// extension) and curates them into the JSON the Home Assistant bridge expects.
@@ -23,6 +24,7 @@ struct NotificationPayload: Encodable {
     var v = 1
     var action: String
     var id: String?
+    var bundleID: String?
     var app: String?
     var title: String?
     var subtitle: String?
@@ -30,19 +32,21 @@ struct NotificationPayload: Encodable {
     var summary: String?
     var thread: String?
     var date: Date?
-    var attributes: String?
+    var attributes: [String]?
     var shouldAlert: Bool?
     var focusSuppressed: Bool?
 
     enum CodingKeys: String, CodingKey {
         case v, action, id, app, title, subtitle, body, summary, thread, date, attributes
+        case bundleID = "bundle_id"
         case shouldAlert = "should_alert"
         case focusSuppressed = "focus_suppressed"
     }
 }
 
 final class NotificationHandler: NotificationsForwarding.AccessoryNotificationsHandler {
-    var session: NotificationsForwarding.Session?
+    /// The handler must be Sendable; the system may call it from any thread.
+    private let session = Mutex<NotificationsForwarding.Session?>(nil)
 
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -51,7 +55,7 @@ final class NotificationHandler: NotificationsForwarding.AccessoryNotificationsH
     }()
 
     func didActivate(for session: NotificationsForwarding.Session) {
-        self.session = session
+        self.session.withLock { $0 = session }
     }
 
     func addNotification(_ notification: AccessoryNotification,
@@ -71,7 +75,8 @@ final class NotificationHandler: NotificationsForwarding.AccessoryNotificationsH
     }
 
     func removeNotification(identifier: AccessoryNotification.Identifier) {
-        let payload = NotificationPayload(action: "remove", id: String(describing: identifier))
+        let payload = NotificationPayload(action: "remove", id: identifier.notificationIdentifier,
+                                          bundleID: identifier.sourceIdentifier)
         Task { try? await send(payload) }
     }
 
@@ -79,12 +84,12 @@ final class NotificationHandler: NotificationsForwarding.AccessoryNotificationsH
         Task { try? await send(NotificationPayload(action: "remove_all")) }
     }
 
-    func messageHandler(_ message: AccessoryMessage) {
+    func messageHandler(_ message: TransportMessage) {
         // The bridge never sends responses (no dismiss/reply from Home Assistant yet).
     }
 
     func didInvalidate() {
-        session = nil
+        session.withLock { $0 = nil }
     }
 
     // MARK: - Helpers
@@ -92,7 +97,8 @@ final class NotificationHandler: NotificationsForwarding.AccessoryNotificationsH
     private func makePayload(_ n: AccessoryNotification, action: String) -> NotificationPayload {
         NotificationPayload(
             action: action,
-            id: String(describing: n.identifier),
+            id: n.identifier.notificationIdentifier,
+            bundleID: n.identifier.sourceIdentifier,
             app: n.sourceName,
             title: n.title,
             subtitle: n.subtitle,
@@ -100,7 +106,7 @@ final class NotificationHandler: NotificationsForwarding.AccessoryNotificationsH
             summary: n.summary?.string,
             thread: n.threadIdentifier,
             date: n.deliveryDate,
-            attributes: String(describing: n.attributes)
+            attributes: Self.attributeNames(n.attributes)
         )
     }
 
@@ -111,6 +117,15 @@ final class NotificationHandler: NotificationsForwarding.AccessoryNotificationsH
             AccessoryMessage.Payload(transport: .bluetooth, data: data)
             AccessoryMessage.Payload(transport: .internet, data: data)
         }
-        try await session?.send(message: message)
+        guard let session = self.session.withLock({ $0 }) else { return }
+        try await session.send(message: message)
+    }
+
+    private static func attributeNames(_ a: AccessoryNotification.Attributes) -> [String] {
+        var names: [String] = []
+        if a.contains(.critical) { names.append("critical") }
+        if a.contains(.timeSensitive) { names.append("time_sensitive") }
+        if a.contains(.priority) { names.append("priority") }
+        return names
     }
 }
