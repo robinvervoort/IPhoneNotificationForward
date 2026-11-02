@@ -44,7 +44,7 @@ final class TransportEventHandler: AccessoryTransportSession.EventHandler {
         }
     }
 
-    func sessionInvalidated(error: (any Error)?) {
+    func sessionInvalidated(error: AccessoryTransportSession.Error?) {
         link?.disconnect()
         link = nil
     }

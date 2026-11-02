@@ -1,5 +1,6 @@
 import AccessoryNotifications
 import AccessoryTransportExtension
+import ExtensionFoundation
 import Foundation
 
 /// Receives forwarded iOS notifications (in plaintext, inside this sandboxed
@@ -40,7 +41,7 @@ struct NotificationPayload: Encodable {
     }
 }
 
-final class NotificationHandler: AccessoryNotificationsHandler {
+final class NotificationHandler: NotificationsForwarding.AccessoryNotificationsHandler {
     var session: NotificationsForwarding.Session?
 
     private let encoder: JSONEncoder = {
