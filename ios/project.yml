@@ -36,6 +36,8 @@ targets:
         CFBundleDisplayName: NotifyFwd
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false   # only standard HTTPS/CryptoKit
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
     entitlements:
       path: NotificationForward/NotificationForward.entitlements
       properties:

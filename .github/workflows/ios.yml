@@ -34,7 +34,7 @@ jobs:
       PROJECT: ios/NotificationForward.xcodeproj
       SCHEME: NotificationForward
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Select newest Xcode
         run: |
@@ -151,7 +151,7 @@ jobs:
 
       - name: Keep logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: xcode-logs
           path: ${{ runner.temp }}/*.log
