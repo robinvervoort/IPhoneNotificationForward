@@ -41,6 +41,7 @@ final class AccessoryManager {
     private func setAccessory(_ accessory: ASAccessory?) {
         self.accessory = accessory
         SharedSettings.accessoryBluetoothID = accessory?.bluetoothIdentifier
+        DiagnosticLog.log("Accessory: \(accessory?.displayName ?? "none"), BT id \(accessory?.bluetoothIdentifier?.uuidString.prefix(8) ?? "nil")")
         Task { await refreshStatus() }
     }
 
@@ -75,7 +76,9 @@ final class AccessoryManager {
         do {
             let decision = try await center.requestForwarding(for: accessory)
             status = "Forwarding: \(decision)"
+            DiagnosticLog.log("requestForwarding: \(decision)")
         } catch {
+            DiagnosticLog.log("requestForwarding failed: \(error)")
             lastError = error.localizedDescription
         }
         await refreshStatus()

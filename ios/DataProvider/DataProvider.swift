@@ -56,14 +56,21 @@ final class NotificationHandler: NotificationsForwarding.AccessoryNotificationsH
 
     func didActivate(for session: NotificationsForwarding.Session) {
         self.session.withLock { $0 = session }
+        DiagnosticLog.log("Forwarding session active")
     }
 
     func addNotification(_ notification: AccessoryNotification,
                          alertingContext: AlertingContext) async throws -> Bool {
+        DiagnosticLog.log("Notification from \(notification.sourceName) (alert: \(alertingContext.shouldAlert))")
         var payload = makePayload(notification, action: "add")
         payload.shouldAlert = alertingContext.shouldAlert
         payload.focusSuppressed = alertingContext.isSuppressedByFocus
-        try await send(payload)
+        do {
+            try await send(payload)
+        } catch {
+            DiagnosticLog.log("Sending notification failed: \(error.localizedDescription)")
+            throw error
+        }
         // Home Assistant doesn't alert a person itself, so report `false` and
         // let the iPhone (or a watch) keep alerting as usual.
         return false
@@ -89,6 +96,7 @@ final class NotificationHandler: NotificationsForwarding.AccessoryNotificationsH
     }
 
     func didInvalidate() {
+        DiagnosticLog.log("Forwarding session ended")
         session.withLock { $0 = nil }
     }
 
@@ -117,8 +125,12 @@ final class NotificationHandler: NotificationsForwarding.AccessoryNotificationsH
             AccessoryMessage.Payload(transport: .bluetooth, data: data)
             AccessoryMessage.Payload(transport: .internet, data: data)
         }
-        guard let session = self.session.withLock({ $0 }) else { return }
+        guard let session = self.session.withLock({ $0 }) else {
+            DiagnosticLog.log("Dropped \(payload.action): no forwarding session yet")
+            return
+        }
         try await session.send(message: message)
+        DiagnosticLog.log("Handed \(payload.action) (\(data.count) bytes) to iOS for encryption")
     }
 
     private static func attributeNames(_ a: AccessoryNotification.Attributes) -> [String] {

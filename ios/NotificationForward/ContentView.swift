@@ -4,6 +4,7 @@ struct ContentView: View {
     @Environment(AccessoryManager.self) private var manager
     @State private var webhookText = ""
     @State private var savedURL: URL?
+    @State private var diagnostics = ""
 
     var body: some View {
         NavigationStack {
@@ -42,6 +43,32 @@ struct ContentView: View {
                          + "encrypted; Home Assistant only relays ciphertext to the add-on.")
                 }
 
+                Section {
+                    ScrollView {
+                        Text(diagnostics.isEmpty ? "No activity logged yet." : diagnostics)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(minHeight: 120, maxHeight: 320)
+                    HStack {
+                        Button("Refresh") { diagnostics = DiagnosticLog.read() }
+                        Spacer()
+                        ShareLink(item: diagnostics) { Label("Share", systemImage: "square.and.arrow.up") }
+                        Spacer()
+                        Button("Clear", role: .destructive) {
+                            DiagnosticLog.clear()
+                            diagnostics = ""
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                } header: {
+                    Text("Diagnostics")
+                } footer: {
+                    Text("What the app and its extensions did, newest at the bottom. "
+                         + "Shows app names, never notification text.")
+                }
+
                 if let error = manager.lastError {
                     Section("Last error") {
                         Text(error).foregroundStyle(.red)
@@ -49,9 +76,13 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Notification Forward")
-            .refreshable { await manager.refreshStatus() }
+            .refreshable {
+                await manager.refreshStatus()
+                diagnostics = DiagnosticLog.read()
+            }
             .onAppear {
                 savedURL = SharedSettings.webhookURL
+                diagnostics = DiagnosticLog.read()
                 webhookText = savedURL?.absoluteString ?? ""
             }
         }

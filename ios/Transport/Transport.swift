@@ -7,7 +7,8 @@ import Foundation
 @main
 struct Transport: AccessoryTransportAppExtension {
     func accept(sessionRequest: AccessoryTransportSession.Request) -> AccessoryTransportSession.Request.Decision {
-        sessionRequest.accept {
+        DiagnosticLog.log("Transport session requested")
+        return sessionRequest.accept {
             TransportEventHandler(session: sessionRequest.session)
         }
     }
@@ -24,6 +25,7 @@ final class TransportEventHandler: AccessoryTransportSession.EventHandler {
     func messageReceived(_ message: TransportMessage,
                          completion: @escaping @Sendable (AccessoryMessage.Result) -> Void) {
         let transport = session.transport
+        DiagnosticLog.log("Transport: \(message.data.count) bytes via \(transport.map { "\($0)" } ?? "none")")
         Task {
             do {
                 switch transport {
@@ -35,16 +37,20 @@ final class TransportEventHandler: AccessoryTransportSession.EventHandler {
                     completion(.failure(.transportUnavailable))
                     return
                 }
+                DiagnosticLog.log("Transport: delivered")
                 completion(.success)
             } catch BridgeError.notPaired, BridgeError.noWebhook, BridgeError.peripheralNotFound {
+                DiagnosticLog.log("Transport: unavailable (not paired or no webhook URL)")
                 completion(.failure(.transportUnavailable))
             } catch {
+                DiagnosticLog.log("Transport failed: \(error.localizedDescription)")
                 completion(.failure(.transportFailed)) // the system retries / picks another transport
             }
         }
     }
 
     func sessionInvalidated(error: AccessoryTransportSession.Error?) {
+        DiagnosticLog.log("Transport session ended \(error.map { "(\($0))" } ?? "")")
         link?.disconnect()
         link = nil
     }
