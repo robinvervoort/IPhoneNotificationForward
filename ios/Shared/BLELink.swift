@@ -17,15 +17,20 @@ final class BLELink: NSObject, @unchecked Sendable {
     private var writeWaiter: (token: Int, continuation: CheckedContinuation<Void, Error>)?
     private var responseWaiter: (token: Int, continuation: CheckedContinuation<Data, Error>)?
     private var nextToken = 0
+    private var isScanning = false
+    private var serviceUUID: CBUUID { CBUUID(string: BridgeProtocol.serviceUUID) }
     private var isReady: Bool { peripheral?.state == .connected && rx != nil && tx?.isNotifying == true }
 
     init(peripheralID: UUID, restoreIdentifier: String? = nil) {
         self.peripheralID = peripheralID
         super.init()
-        var options: [String: Any] = [:]
+        // DeviceAccessForMedia lets an extension use the AccessorySetupKit-approved
+        // accessory (as the working Pebble implementation does).
+        var options: [String: Any] = [CBCentralManagerOptionDeviceAccessForMedia: true]
         if let restoreIdentifier {
             options[CBCentralManagerOptionRestoreIdentifierKey] = restoreIdentifier
         }
+        DiagnosticLog.log("BLE: central created for \(peripheralID.uuidString.prefix(8)), restore=\(restoreIdentifier != nil)")
         central = CBCentralManager(delegate: self, queue: queue, options: options)
     }
 
@@ -96,13 +101,24 @@ final class BLELink: NSObject, @unchecked Sendable {
     private func advance() {
         guard central.state == .poweredOn else {
             if central.state == .unsupported || central.state == .unauthorized {
+                DiagnosticLog.log("BLE: unavailable (state \(central.state.rawValue))")
                 failAll(BridgeError.bluetoothUnavailable)
             }
             return // wait for centralManagerDidUpdateState
         }
         if peripheral == nil {
-            guard let p = central.retrievePeripherals(withIdentifiers: [peripheralID]).first else {
-                failAll(BridgeError.peripheralNotFound); return
+            // 1. the identifier AccessorySetupKit gave the app, 2. an already
+            // connected bridge, 3. scan for the bridge's service.
+            let known = central.retrievePeripherals(withIdentifiers: [peripheralID])
+            let connected = central.retrieveConnectedPeripherals(withServices: [serviceUUID])
+            DiagnosticLog.log("BLE: retrieve known=\(known.count) connected=\(connected.count)")
+            guard let p = known.first ?? connected.first else {
+                if !isScanning {
+                    isScanning = true
+                    DiagnosticLog.log("BLE: scanning for bridge service")
+                    central.scanForPeripherals(withServices: [serviceUUID])
+                }
+                return
             }
             peripheral = p
             p.delegate = self
@@ -110,6 +126,7 @@ final class BLELink: NSObject, @unchecked Sendable {
         guard let p = peripheral else { return }
         switch p.state {
         case .disconnected:
+            DiagnosticLog.log("BLE: connecting to \(p.identifier.uuidString.prefix(8))")
             central.connect(p)
         case .connected:
             if rx == nil || tx == nil {
@@ -127,6 +144,7 @@ final class BLELink: NSObject, @unchecked Sendable {
     }
 
     private func failAll(_ error: Error) {
+        DiagnosticLog.log("BLE: failed: \(error.localizedDescription)")
         let waiters = readyWaiters.values
         readyWaiters.removeAll()
         waiters.forEach { $0.resume(throwing: error) }
@@ -151,6 +169,18 @@ final class BLELink: NSObject, @unchecked Sendable {
 
 extension BLELink: CBCentralManagerDelegate, CBPeripheralDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        DiagnosticLog.log("BLE: state \(central.state.rawValue) (5 = on, 3 = unauthorized)")
+        advance()
+    }
+
+    func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
+                        advertisementData: [String: Any], rssi RSSI: NSNumber) {
+        guard self.peripheral == nil else { return }
+        DiagnosticLog.log("BLE: found bridge by scan (\(peripheral.identifier.uuidString.prefix(8)), RSSI \(RSSI))")
+        central.stopScan()
+        isScanning = false
+        self.peripheral = peripheral
+        peripheral.delegate = self
         advance()
     }
 
@@ -163,6 +193,7 @@ extension BLELink: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        DiagnosticLog.log("BLE: connected")
         advance()
     }
 
@@ -172,6 +203,7 @@ extension BLELink: CBCentralManagerDelegate, CBPeripheralDelegate {
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral,
                         error: Error?) {
+        DiagnosticLog.log("BLE: disconnected \(error?.localizedDescription ?? "")")
         rx = nil
         tx = nil
         reassembler = BridgeProtocol.Reassembler()
@@ -192,6 +224,7 @@ extension BLELink: CBCentralManagerDelegate, CBPeripheralDelegate {
         rx = service.characteristics?.first { $0.uuid == CBUUID(string: BridgeProtocol.rxUUID) }
         tx = service.characteristics?.first { $0.uuid == CBUUID(string: BridgeProtocol.txUUID) }
         guard rx != nil, tx != nil else { failAll(error ?? BridgeError.serviceNotFound); return }
+        DiagnosticLog.log("BLE: bridge service ready")
         advance()
     }
 
@@ -204,6 +237,7 @@ extension BLELink: CBCentralManagerDelegate, CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         let waiter = writeWaiter?.continuation
         writeWaiter = nil
+        if let error { DiagnosticLog.log("BLE: write failed: \(error.localizedDescription)") }
         if let error { waiter?.resume(throwing: error) } else { waiter?.resume() }
     }
 

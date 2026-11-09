@@ -17,7 +17,8 @@ struct TransportSecurity: AccessoryTransportSecurity {
     }
 
     func accept(sessionRequest: AccessorySecuritySession.Request) -> AccessorySecuritySession.Request.Decision {
-        sessionRequest.accept {
+        DiagnosticLog.log("Security session requested")
+        return sessionRequest.accept {
             SecurityEventHandler(session: sessionRequest.session)
         }
     }
@@ -36,6 +37,7 @@ final class SecurityEventHandler: AccessorySecuritySession.EventHandler {
     private func startKeyExchange() async {
         do {
             guard let peripheralID = SharedSettings.accessoryBluetoothID else { throw BridgeError.notPaired }
+            DiagnosticLog.log("Key exchange: asking bridge for its public key")
             let link = BLELink(peripheralID: peripheralID)
             self.link = link
             identifier = peripheralID.uuidString
@@ -52,7 +54,9 @@ final class SecurityEventHandler: AccessorySecuritySession.EventHandler {
                 identifier: peripheralID.uuidString
             )
             try session.sendSecurityMessage(message)
+            DiagnosticLog.log("Key exchange: sent \(publicKey.count)-byte public key to iOS")
         } catch {
+            DiagnosticLog.log("Key exchange failed: \(error.localizedDescription)")
             link?.disconnect()
             link = nil
             session.cancel(error: .unknown)
@@ -61,6 +65,7 @@ final class SecurityEventHandler: AccessorySecuritySession.EventHandler {
 
     func messageReceived(_ message: SecurityMessage,
                          completion: @escaping @Sendable (AccessoryMessage.Result) -> Void) {
+        DiagnosticLog.log("Key exchange: iOS sent \(message.keyType.rawValue) (\(message.cipherSuite))")
         guard message.keyType == .encapsulatedKey else {
             completion(.success)
             return
@@ -76,14 +81,17 @@ final class SecurityEventHandler: AccessorySecuritySession.EventHandler {
         Task {
             do {
                 try BridgeProtocol.checkResult(try await link.request(request))
+                DiagnosticLog.log("Key exchange complete (info \(protocolInfo.prefix(14))…)")
                 completion(.success)
             } catch {
+                DiagnosticLog.log("Key exchange: bridge rejected key: \(error.localizedDescription)")
                 completion(.failure(.transportFailed))
             }
         }
     }
 
     func sessionInvalidated(error: AccessorySecuritySession.Error?) {
+        DiagnosticLog.log("Security session ended \(error.map { "(\($0))" } ?? "")")
         link?.disconnect()
         link = nil
     }
