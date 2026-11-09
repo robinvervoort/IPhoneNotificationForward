@@ -111,6 +111,32 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" 2>&1 | tee "$RUNNER_TEMP/archive.log"
 
+      - name: Inspect app bundle
+        # Shows where the extensions are embedded, their extension points and
+        # signed entitlements, so iOS-side launch problems can be diagnosed.
+        if: steps.secrets.outputs.signing == 'true'
+        run: |
+          APP=$(find "$RUNNER_TEMP/NotificationForward.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' | head -1)
+          echo "App: $APP"
+          find "$APP" -maxdepth 2 \( -name '*.appex' -o -name 'Extensions' -o -name 'PlugIns' \) -print
+          for ext in "$APP"/Extensions/*.appex "$APP"/PlugIns/*.appex; do
+            [ -d "$ext" ] || continue
+            echo "::group::$(basename "$ext")"
+            plutil -extract EXAppExtensionAttributes json -o - "$ext/Info.plist" 2>/dev/null || echo "(no EXAppExtensionAttributes)"
+            echo
+            plutil -extract NSExtension json -o - "$ext/Info.plist" 2>/dev/null && echo "(has NSExtension)"
+            for k in NSAccessorySetupKitSupports NSAccessorySetupBluetoothServices CFBundleIdentifier; do
+              printf '%s: ' "$k"; plutil -extract "$k" json -o - "$ext/Info.plist" 2>/dev/null || echo "-"; echo
+            done
+            codesign -d --entitlements - --xml "$ext" 2>/dev/null | plutil -convert json -o - - 2>/dev/null || true
+            echo
+            echo "::endgroup::"
+          done
+          echo "::group::App entitlements"
+          codesign -d --entitlements - --xml "$APP" 2>/dev/null | plutil -convert json -o - - 2>/dev/null || true
+          echo
+          echo "::endgroup::"
+
       - name: Upload to TestFlight
         if: >-
           steps.secrets.outputs.signing == 'true' &&
