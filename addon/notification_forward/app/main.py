@@ -9,6 +9,7 @@ import os
 
 import aiohttp
 
+from . import hci_trace
 from .ble import BleServer
 from .bridge import Bridge
 from .ha import HomeAssistant, NotificationSink
@@ -27,6 +28,7 @@ def load_options() -> dict:
         "sensor_entity": "sensor.iphone_last_notification",
         "inbound_event_type": "notification_forward_inbound",
         "log_level": "info",
+        "hci_trace": True,
     }
     if os.path.exists(OPTIONS_PATH):
         with open(OPTIONS_PATH) as f:
@@ -57,6 +59,9 @@ async def run() -> None:
                 bridge.internet_data(data)
             except Exception as e:  # noqa: BLE001
                 log.warning("Internet delivery rejected: %s", e)
+
+        if opts.get("hci_trace"):
+            hci_trace.start(loop)
 
         ble = BleServer(bridge, opts["device_name"], opts["adapter"] or None)
         await ble.start()
