@@ -89,6 +89,21 @@ jobs:
             echo "::notice::Signing secrets not set; skipping archive and TestFlight upload."
           fi
 
+      - name: Revoke stale CI development certificates
+        # Every run is a fresh Mac, so Xcode creates a new development
+        # certificate each time; revoke the old ones before Apple's cap is hit.
+        if: steps.secrets.outputs.signing == 'true'
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/certenv"
+          "$RUNNER_TEMP/certenv/bin/pip" install --quiet pyjwt cryptography
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey_cleanup.p8"
+          ASC_KEY_PATH="$RUNNER_TEMP/AuthKey_cleanup.p8" "$RUNNER_TEMP/certenv/bin/python" .github/scripts/revoke_ci_dev_certs.py
+          rm -f "$RUNNER_TEMP/AuthKey_cleanup.p8"
+
       - name: Archive (signed)
         if: steps.secrets.outputs.signing == 'true'
         env:
@@ -170,6 +185,21 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" 2>&1 | tee "$RUNNER_TEMP/export.log"
           echo "::notice::Build ${{ github.run_number }} uploaded. It appears in TestFlight after Apple's processing (usually 5-30 min)."
+
+      - name: Revoke stale CI development certificates (after build)
+        # Every run is a fresh Mac, so Xcode creates a new development
+        # certificate each time; revoke the old ones before Apple's cap is hit.
+        if: always() && steps.secrets.outputs.signing == 'true'
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/certenv"
+          "$RUNNER_TEMP/certenv/bin/pip" install --quiet pyjwt cryptography
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey_cleanup.p8"
+          ASC_KEY_PATH="$RUNNER_TEMP/AuthKey_cleanup.p8" "$RUNNER_TEMP/certenv/bin/python" .github/scripts/revoke_ci_dev_certs.py || true
+          rm -f "$RUNNER_TEMP/AuthKey_cleanup.p8"
 
       - name: Remove API key
         if: always()
