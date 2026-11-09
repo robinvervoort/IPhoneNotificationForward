@@ -61,7 +61,7 @@ final class AccessoryManager {
         link = nil
         linkID = id
         guard let id else { return }
-        let link = BLELink(peripheralID: id, restoreIdentifier: "be.robinvervoort.notificationforward.app")
+        let link = BLELink(peripheralID: id, deviceAccess: false)
         self.link = link
         keepAlive = Task {
             var wasConnected = false

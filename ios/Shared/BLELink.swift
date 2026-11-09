@@ -21,12 +21,15 @@ final class BLELink: NSObject, @unchecked Sendable {
     private var serviceUUID: CBUUID { CBUUID(string: BridgeProtocol.serviceUUID) }
     private var isReady: Bool { peripheral?.state == .connected && rx != nil && tx?.isNotifying == true }
 
-    init(peripheralID: UUID, restoreIdentifier: String? = nil) {
+    /// `deviceAccess` adds CBCentralManagerOptionDeviceAccessForMedia, which the
+    /// extensions use (as in the working Pebble code); the app must not set it,
+    /// nor a restore identifier, or iOS reports the central as unsupported.
+    init(peripheralID: UUID, restoreIdentifier: String? = nil, deviceAccess: Bool = true) {
         self.peripheralID = peripheralID
         super.init()
         // DeviceAccessForMedia lets an extension use the AccessorySetupKit-approved
         // accessory (as the working Pebble implementation does).
-        var options: [String: Any] = [CBCentralManagerOptionDeviceAccessForMedia: true]
+        var options: [String: Any] = deviceAccess ? [CBCentralManagerOptionDeviceAccessForMedia: true] : [:]
         if let restoreIdentifier {
             options[CBCentralManagerOptionRestoreIdentifierKey] = restoreIdentifier
         }

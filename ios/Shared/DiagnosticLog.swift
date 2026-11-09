@@ -25,21 +25,26 @@ enum DiagnosticLog {
         guard let url = fileURL else { return }
         let stamp = ISO8601DateFormatter.string(from: Date(), timeZone: .current,
                                                 formatOptions: [.withTime, .withColonSeparatorInTime])
-        let line = "\(stamp) [\(source)] \(message)\n"
+        let line = Data("\(stamp) [\(source)] \(message)\n".utf8)
+        // Append-only with O_APPEND: the app and each extension are separate
+        // processes, and a read-modify-write would let them overwrite each other.
         lock.lock()
         defer { lock.unlock() }
-        var text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        text += line
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
-        if lines.count > maxLines {
-            text = lines.suffix(maxLines).joined(separator: "\n") + "\n"
-        }
-        try? text.write(to: url, atomically: true, encoding: .utf8)
+        let fd = open(url.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+        guard fd >= 0 else { return }
+        _ = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        close(fd)
     }
 
+    /// Returns the log and trims it to the newest lines (called from the app only).
     static func read() -> String {
         guard let url = fileURL else { return "(app group unavailable)" }
-        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+        guard lines.count > maxLines else { return text }
+        let trimmed = lines.suffix(maxLines).joined(separator: "\n") + "\n"
+        try? trimmed.write(to: url, atomically: true, encoding: .utf8)
+        return trimmed
     }
 
     static func clear() {
