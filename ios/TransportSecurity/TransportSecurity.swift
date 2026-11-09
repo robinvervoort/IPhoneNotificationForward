@@ -70,7 +70,9 @@ final class SecurityEventHandler: AccessorySecuritySession.EventHandler {
             return
         }
         let suite: BridgeProtocol.Suite = message.cipherSuite == .p256 ? .p256 : .xWing
-        let request = BridgeProtocol.keyExchange(suite: suite, identifier: ident, encapsulatedKey: message.key)
+        let protocolInfo = "\(message.cipherSuite)-\(message.version)-\(ident)"
+        let request = BridgeProtocol.keyExchange(suite: suite, identifier: ident, protocolInfo: protocolInfo,
+                                                 encapsulatedKey: message.key)
         Task {
             do {
                 try BridgeProtocol.checkResult(try await link.request(request))

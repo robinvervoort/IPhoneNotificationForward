@@ -49,6 +49,9 @@ final class AccessoryManager {
     func pair() {
         let descriptor = ASDiscoveryDescriptor()
         descriptor.bluetoothServiceUUID = CBUUID(string: BridgeProtocol.serviceUUID)
+        // iOS only forwards notifications to an accessory it has a secure, bonded
+        // LE link with; without this the request fails with .unsupportedAccessory.
+        descriptor.supportedOptions = .bluetoothPairingLE
         let image = UIImage(systemName: "house.and.flag.fill") ?? UIImage()
         let item = ASPickerDisplayItem(name: "Notification Forward Bridge", productImage: image, descriptor: descriptor)
         session.showPicker(for: [item]) { [weak self] error in

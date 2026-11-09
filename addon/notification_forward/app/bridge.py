@@ -130,7 +130,7 @@ class Bridge:
                 log.info("iPhone requested %s public key", msg.suite)
                 return protocol.encode_pubkey(msg.suite, key.public_bytes())
             if isinstance(msg, protocol.KeyExchange):
-                self.key_exchange(msg.suite, msg.identifier, msg.encapsulated_key)
+                self.key_exchange(msg.suite, msg.identifier, msg.encapsulated_key, msg.info)
                 return protocol.encode_result(True)
             if isinstance(msg, protocol.Data):
                 self.bluetooth_data(msg.kind, msg.session_id, msg.data)
@@ -140,9 +140,11 @@ class Bridge:
             return protocol.encode_result(False, str(e))
         return None
 
-    def key_exchange(self, suite: str, identifier: str, enc: bytes) -> Session:
+    def key_exchange(self, suite: str, identifier: str, enc: bytes, info_text: str | None = None) -> Session:
         key = self.keys[suite]
-        info = crypto.protocol_info(suite, identifier)
+        # Use iOS's own spelling of "<suite>-<version>-<id>" when the phone sends it
+        # (the docs say "xWing"/"p256", accessories in the field have seen "P256").
+        info = info_text.encode() if info_text else crypto.protocol_info(suite, identifier)
         ctx = crypto.setup_base_recipient(key, enc, info)
         session = Session(identifier, suite, ctx.exporter_secret, info, time.time())
         if suite == crypto.XWING:
@@ -151,7 +153,7 @@ class Bridge:
             session.incoming = crypto.ReceivingRatchet(chain_key=ctx.export(h2a, 32))
         self.sessions[identifier] = session
         self._save()
-        log.info("Key exchange complete (%s) for iPhone %s", suite, identifier)
+        log.info("Key exchange complete (%s) for iPhone %s, info %r", suite, identifier, info.decode())
         return session
 
     def bluetooth_data(self, kind: int, session_id: str, data: bytes) -> None:
