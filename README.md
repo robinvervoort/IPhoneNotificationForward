@@ -79,19 +79,36 @@ actions:
 The webhook URL is `https://<your-ha-domain>/api/webhook/<your-random-webhook-id>`.
 Make sure your NGINX proxy forwards `/api/webhook/`, which it does by default.
 
-## 4. Build and install the iPhone app
+## 4. Build and install the iPhone app (no Mac needed)
 
-```sh
-brew install xcodegen
-cd ios && xcodegen && open NotificationForward.xcodeproj
-```
+GitHub Actions builds the app on a macOS runner (`.github/workflows/ios.yml`):
+every push compiles it; with the secrets below, pushes to `main` (or a manual
+**Run workflow**) sign it and upload it to TestFlight.
 
-1. Set your team on all four targets (or `DEVELOPMENT_TEAM` in `project.yml`).
-   Register the app group `group.be.robinvervoort.notificationforward`.
-2. Run on your iPhone.
-3. In the app, stand near the dongle: **Pair bridge** → pick *Notification Forward Bridge*.
-4. **Allow notification forwarding** → choose all apps or a subset.
-5. Enter the full webhook URL under *Away from home* → **Save**.
+One-time setup (all in a browser):
+
+1. Join the [Apple Developer Program](https://developer.apple.com/programs/).
+2. [App Store Connect](https://appstoreconnect.apple.com) → **Apps → + → New App**:
+   platform iOS, bundle ID `be.robinvervoort.notificationforward`
+   (register it under Certificates, Identifiers & Profiles → Identifiers first
+   if it isn't listed), any name and SKU.
+3. App Store Connect → **Users and Access → Integrations → App Store Connect API**
+   → generate a **Team key** with the **Admin** role (needed so CI may create
+   signing certificates and App IDs). Download the `.p8` (only possible once).
+4. GitHub → repo **Settings → Secrets and variables → Actions** → add:
+   `APPLE_TEAM_ID`, `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` (paste the whole `.p8` file).
+5. **Actions → iOS app → Run workflow**. After Apple processes the build
+   (5–30 min), install **TestFlight** on the iPhone and accept the build.
+   Add yourself as an internal tester in App Store Connect → TestFlight.
+
+Then, in the app:
+
+1. Stand near the dongle: **Pair bridge** → pick *Notification Forward Bridge*.
+2. **Allow notification forwarding** → choose all apps or a subset.
+3. Enter the full webhook URL under *Away from home* → **Save**.
+
+With a Mac you can also build locally: `brew install xcodegen`, then
+`cd ios && xcodegen && open NotificationForward.xcodeproj`.
 
 iOS now runs the key exchange with the add-on (log: `Key exchange complete (xWing)`).
 After that, notifications arrive over Bluetooth at home and over the
@@ -102,9 +119,11 @@ internet elsewhere.
 Every notification fires an `iphone_notification` event:
 
 ```json
-{"v": 1, "action": "add", "id": "…", "app": "WhatsApp", "title": "Mom",
+{"v": 1, "action": "add", "id": "…", "bundle_id": "net.whatsapp.WhatsApp",
+ "app": "WhatsApp", "title": "Mom",
  "body": "Dinner at 7?", "subtitle": null, "summary": null, "thread": "…",
- "date": "2026-10-31T18:02:11Z", "should_alert": true, "focus_suppressed": false,
+ "date": "2026-10-31T18:02:11Z", "attributes": ["time_sensitive"],
+ "should_alert": true, "focus_suppressed": false,
  "transport": "bluetooth"}
 ```
 

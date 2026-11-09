@@ -12,6 +12,8 @@ settings:
     DEVELOPMENT_TEAM: ""          # set your Apple developer team ID
     CODE_SIGN_STYLE: Automatic
     TARGETED_DEVICE_FAMILY: "1"   # iPhone only (framework requirement)
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"  # CI overrides this with the run number
 
 # Keys every target that touches the bridge needs, so AccessorySetupKit
 # grants them the same approved accessory.
@@ -29,8 +31,13 @@ targets:
       path: NotificationForward/Info.plist
       properties:
         <<: *accessoryPlist
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: NotifyFwd
         UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false   # only standard HTTPS/CryptoKit
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
     entitlements:
       path: NotificationForward/NotificationForward.entitlements
       properties:
@@ -38,6 +45,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.notificationforward
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    scheme: {}                    # shared scheme, used by CI to build/archive
     dependencies:
       - target: DataProvider
       - target: TransportSecurity
@@ -50,6 +59,8 @@ targets:
     info:
       path: DataProvider/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Notification Forward Data Provider
         EXAppExtensionAttributes:
           EXExtensionPointIdentifier: com.apple.accessory-data-provider
@@ -71,6 +82,8 @@ targets:
       path: TransportSecurity/Info.plist
       properties:
         <<: *accessoryPlist
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Notification Forward Transport Security
         EXAppExtensionAttributes:
           EXExtensionPointIdentifier: com.apple.accessory-transport-security
@@ -91,6 +104,8 @@ targets:
       path: Transport/Info.plist
       properties:
         <<: *accessoryPlist
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Notification Forward Transport
         UIBackgroundModes: [bluetooth-central]
         EXAppExtensionAttributes:

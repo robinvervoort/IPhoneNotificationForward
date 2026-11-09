@@ -1,4 +1,5 @@
 import AccessoryTransportExtension
+import ExtensionFoundation
 import Foundation
 
 /// Runs the HPKE key exchange between iOS and the bridge.
@@ -52,7 +53,9 @@ final class SecurityEventHandler: AccessorySecuritySession.EventHandler {
             )
             try session.sendSecurityMessage(message)
         } catch {
-            session.cancel(error: error)
+            link?.disconnect()
+            link = nil
+            session.cancel(error: .unknown)
         }
     }
 
@@ -78,7 +81,7 @@ final class SecurityEventHandler: AccessorySecuritySession.EventHandler {
         }
     }
 
-    func sessionInvalidated(error: (any Error)?) {
+    func sessionInvalidated(error: AccessorySecuritySession.Error?) {
         link?.disconnect()
         link = nil
     }
