@@ -81,4 +81,9 @@ async def setup_pairing(adapter: str) -> MessageBus:
     await props.call_set("org.bluez.Adapter1", "Pairable", Variant("b", True))
     await props.call_set("org.bluez.Adapter1", "PairableTimeout", Variant("u", 0))
     log.info("Pairing agent registered; %s is pairable (Just Works)", adapter)
+    try:
+        from .bonds import watch_devices
+        await watch_devices(bus, adapter)
+    except Exception as e:  # noqa: BLE001 - diagnostics must never stop the bridge
+        log.warning("Device watcher unavailable: %s", e)
     return bus
