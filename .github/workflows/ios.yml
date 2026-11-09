@@ -22,9 +22,12 @@ on:
         type: boolean
         default: true
 
+# One signing build at a time across all branches: each run creates (and
+# afterwards revokes) a development certificate, so overlapping runs would
+# revoke each other's certificate mid-build. Queue instead of cancelling.
 concurrency:
-  group: ios-${{ github.ref }}
-  cancel-in-progress: true
+  group: ios-signing
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -83,7 +86,9 @@ jobs:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -n "$ASC_KEY_P8" ] && [ -n "$APPLE_TEAM_ID" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "::notice::Pull request: compile only, no signing."
+          elif [ -n "$ASC_KEY_P8" ] && [ -n "$APPLE_TEAM_ID" ]; then
             echo "signing=true" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::Signing secrets not set; skipping archive and TestFlight upload."
@@ -198,7 +203,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/certenv"
           "$RUNNER_TEMP/certenv/bin/pip" install --quiet pyjwt cryptography
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey_cleanup.p8"
-          ASC_KEY_PATH="$RUNNER_TEMP/AuthKey_cleanup.p8" "$RUNNER_TEMP/certenv/bin/python" .github/scripts/revoke_ci_dev_certs.py || true
+          ASC_KEY_PATH="$RUNNER_TEMP/AuthKey_cleanup.p8" MIN_AGE_MINUTES=0 "$RUNNER_TEMP/certenv/bin/python" .github/scripts/revoke_ci_dev_certs.py || true
           rm -f "$RUNNER_TEMP/AuthKey_cleanup.p8"
 
       - name: Remove API key
