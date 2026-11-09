@@ -14,11 +14,22 @@ import os
 import sys
 import time
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 import jwt  # PyJWT
 
 API = "https://api.appstoreconnect.apple.com/v1"
 DEV_TYPES = {"DEVELOPMENT", "IOS_DEVELOPMENT"}
+# Certificates are valid for one year; the API has no creation date, so infer
+# it and leave very recent certificates alone (another build may be using one).
+MIN_AGE = timedelta(minutes=int(os.environ.get("MIN_AGE_MINUTES", "60")))
+
+
+def created_at(expiration: str | None) -> datetime | None:
+    if not expiration:
+        return None
+    exp = datetime.fromisoformat(expiration.replace("Z", "+00:00"))
+    return exp.replace(year=exp.year - 1)
 
 
 def token() -> str:
@@ -45,7 +56,12 @@ def main() -> int:
     for cert in data:
         a = cert["attributes"]
         label = f'{a.get("certificateType")} | {a.get("name")} | {a.get("displayName")} | expires {a.get("expirationDate")}'
+        created = created_at(a.get("expirationDate"))
+        too_new = created is not None and datetime.now(timezone.utc) - created < MIN_AGE
         if a.get("certificateType") in DEV_TYPES and "Created via API" in f'{a.get("name")} {a.get("displayName")}':
+            if too_new:
+                print(f"kept (newer than {MIN_AGE}): {label}")
+                continue
             call("DELETE", f"{API}/certificates/{cert['id']}", tok)
             revoked += 1
             print(f"revoked: {label}")

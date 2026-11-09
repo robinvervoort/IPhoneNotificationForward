@@ -75,7 +75,7 @@ async def watch_devices(bus: MessageBus, adapter: str) -> None:
                 loop.create_task(_set_trusted(bus, msg.path))
         elif msg.member == "InterfacesRemoved" and msg.body and str(msg.body[0]).startswith(prefix) \
                 and DEVICE in msg.body[1]:
-            log.warning("Device %s removed from BlueZ (bond deleted)", str(msg.body[0]).rsplit("/", 1)[-1])
+            log.info("Device %s dropped from BlueZ's cache", str(msg.body[0]).rsplit("/", 1)[-1])
         elif msg.member == "InterfacesAdded" and msg.body and str(msg.body[0]).startswith(prefix) \
                 and DEVICE in msg.body[1]:
             d = msg.body[1][DEVICE]
