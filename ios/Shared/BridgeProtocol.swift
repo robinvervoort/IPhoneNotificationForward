@@ -27,10 +27,15 @@ enum BridgeProtocol {
         Data([0x01, suite.rawValue])
     }
 
-    static func keyExchange(suite: Suite, identifier: String, encapsulatedKey: Data) -> Data {
-        let ident = Data(identifier.utf8)
-        var d = Data([0x02, suite.rawValue, UInt8(ident.count >> 8), UInt8(ident.count & 0xFF)])
-        d.append(ident)
+    /// `protocolInfo` is "<cipherSuite>-<version>-<identifier>" spelled exactly as
+    /// iOS describes them; the bridge uses it verbatim as the HPKE info.
+    static func keyExchange(suite: Suite, identifier: String, protocolInfo: String,
+                            encapsulatedKey: Data) -> Data {
+        var d = Data([0x02, suite.rawValue])
+        for field in [Data(identifier.utf8), Data(protocolInfo.utf8)] {
+            d.append(contentsOf: [UInt8(field.count >> 8), UInt8(field.count & 0xFF)])
+            d.append(field)
+        }
         d.append(encapsulatedKey)
         return d
     }

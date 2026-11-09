@@ -8,6 +8,7 @@ import logging
 from bless import BlessServer, GATTAttributePermissions, GATTCharacteristicProperties
 
 from . import protocol
+from .agent import setup_pairing
 from .bridge import Bridge
 
 log = logging.getLogger(__name__)
@@ -25,9 +26,12 @@ class BleServer:
         self.rx = protocol.Reassembler()
         self.server: BlessServer | None = None
         self._outbox: asyncio.Queue[bytes] = asyncio.Queue()
+        self._agent_bus = None
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
+        # iOS only forwards notifications over a bonded (encrypted) LE link.
+        self._agent_bus = await setup_pairing(self.adapter or "hci0")
         self.server = BlessServer(name=self.name, loop=loop, adapter=self.adapter)
         self.server.read_request_func = self._on_read
         self.server.write_request_func = self._on_write
@@ -35,7 +39,7 @@ class BleServer:
         await self.server.add_new_characteristic(
             protocol.SERVICE_UUID, protocol.RX_UUID,
             GATTCharacteristicProperties.write,
-            None, GATTAttributePermissions.writeable)
+            None, GATTAttributePermissions.writeable | GATTAttributePermissions.write_encryption_required)
         await self.server.add_new_characteristic(
             protocol.SERVICE_UUID, protocol.TX_UUID,
             GATTCharacteristicProperties.notify | GATTCharacteristicProperties.read,

@@ -18,7 +18,8 @@ Messages (first byte = type)
 ----------------------------
 iPhone -> bridge
   0x01 GET_PUBKEY  [suite u8]
-  0x02 KEYX        [suite u8][id_len u16 BE][identifier utf8][encapsulated key]
+  0x02 KEYX        [suite u8][id_len u16 BE][identifier utf8]
+                   [info_len u16 BE][HPKE info utf8, as iOS spells it][encapsulated key]
   0x03 DATA        [kind u8: 1=ciphertext 2=plaintext][session UUID 16 bytes][data]
 bridge -> iPhone
   0x81 PUBKEY      [suite u8][public key]
@@ -113,6 +114,7 @@ class GetPubKey:
 class KeyExchange:
     suite: str
     identifier: str
+    info: str  # "<cipherSuite>-<version>-<identifier>" exactly as iOS builds it
     encapsulated_key: bytes
 
 
@@ -142,12 +144,21 @@ def parse(message: bytes):
         if len(body) < 3:
             raise ProtocolError("bad KEYX")
         suite = _suite(body[0])
-        (id_len,) = struct.unpack(">H", body[1:3])
-        identifier = body[3:3 + id_len].decode()
-        enc = body[3 + id_len:]
-        if len(identifier) != id_len or not enc:
-            raise ProtocolError("truncated KEYX")
-        return KeyExchange(suite, identifier, enc)
+        pos = 1
+        fields = []
+        for _ in range(2):  # identifier, info
+            if len(body) < pos + 2:
+                raise ProtocolError("truncated KEYX")
+            (n,) = struct.unpack(">H", body[pos:pos + 2])
+            raw = body[pos + 2:pos + 2 + n]
+            if len(raw) != n:
+                raise ProtocolError("truncated KEYX")
+            fields.append(raw.decode())
+            pos += 2 + n
+        enc = body[pos:]
+        if not enc:
+            raise ProtocolError("KEYX without encapsulated key")
+        return KeyExchange(suite, fields[0], fields[1], enc)
     if t == MSG_DATA:
         if len(body) < 17:
             raise ProtocolError("bad DATA")
@@ -169,9 +180,11 @@ def encode_get_pubkey(suite: str) -> bytes:
     return bytes([MSG_GET_PUBKEY, SUITE_CODES[suite]])
 
 
-def encode_keyx(suite: str, identifier: str, enc: bytes) -> bytes:
+def encode_keyx(suite: str, identifier: str, enc: bytes, info: str | None = None) -> bytes:
     ident = identifier.encode()
-    return bytes([MSG_KEYX, SUITE_CODES[suite]]) + struct.pack(">H", len(ident)) + ident + enc
+    inf = (info if info is not None else f"{suite}-Version1-{identifier}").encode()
+    return (bytes([MSG_KEYX, SUITE_CODES[suite]]) + struct.pack(">H", len(ident)) + ident
+            + struct.pack(">H", len(inf)) + inf + enc)
 
 
 def encode_data(kind: int, session_id: str, data: bytes) -> bytes:

@@ -46,6 +46,7 @@ class FakeIPhone:
         ss, enc = xwing_encapsulate(self.pk)
         self.ctx = crypto.key_schedule(suite, ss, crypto.protocol_info(suite, IDENT))
         assert bridge.handle_message(protocol.encode_keyx(suite, IDENT, enc)) == protocol.encode_result(True)
+        self.info = crypto.protocol_info(suite, IDENT)
         h2a, _ = crypto.internet_contexts(IDENT)
         self.chain = self.ctx.export(h2a, 32)
         self.index = 0
@@ -139,3 +140,15 @@ def test_data_message_uuid_is_uppercase():
     sid = str(uuid.uuid4())
     parsed = protocol.parse(protocol.encode_data(1, sid, b"x"))
     assert parsed.session_id == sid.upper()
+
+
+def test_keyx_uses_info_spelled_by_ios(tmp_path):
+    """iOS may spell the suite differently (e.g. "XWing"); the bridge must use its string."""
+    bridge = Bridge(str(tmp_path / "s.json"), lambda n: None)
+    resp = bridge.handle_message(protocol.encode_get_pubkey("xWing"))
+    ss, enc = xwing_encapsulate(resp[2:])
+    info = f"XWing-Version1-{IDENT}"
+    assert bridge.handle_message(protocol.encode_keyx("xWing", IDENT, enc, info)) == protocol.encode_result(True)
+    assert bridge.sessions[IDENT].protocol_info == info.encode()
+    expected = crypto.key_schedule("xWing", ss, info.encode())
+    assert bridge.sessions[IDENT].exporter_secret == expected.exporter_secret

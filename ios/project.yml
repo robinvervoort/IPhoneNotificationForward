@@ -20,6 +20,7 @@ settings:
 accessoryPlist: &accessoryPlist
   NSAccessorySetupKitSupports: [Bluetooth]
   NSAccessorySetupBluetoothServices: ["46B6C6E3-47D4-4FD7-98B7-D41D1109B69B"]
+  NSAccessorySetupBluetoothNames: ["NotifFwd"]
   NSBluetoothAlwaysUsageDescription: Notification Forward talks to your Home Assistant Bluetooth bridge.
 
 targets:
@@ -36,7 +37,6 @@ targets:
         CFBundleDisplayName: NotifyFwd
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false   # only standard HTTPS/CryptoKit
-        UIRequiresFullScreen: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
     entitlements:
       path: NotificationForward/NotificationForward.entitlements
