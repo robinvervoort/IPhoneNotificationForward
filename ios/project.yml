@@ -37,7 +37,13 @@ targets:
         CFBundleDisplayName: NotifyFwd
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false   # only standard HTTPS/CryptoKit
-        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # App Store validation (error 90474) requires all four orientations
+        # now that UIRequiresFullScreen is deprecated.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     entitlements:
       path: NotificationForward/NotificationForward.entitlements
       properties:
