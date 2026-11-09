@@ -37,6 +37,7 @@ targets:
         CFBundleDisplayName: NotifyFwd
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false   # only standard HTTPS/CryptoKit
+        UIBackgroundModes: [bluetooth-central]
         # App Store validation (error 90474) requires all four orientations
         # now that UIRequiresFullScreen is deprecated.
         UISupportedInterfaceOrientations:
@@ -65,6 +66,7 @@ targets:
     info:
       path: DataProvider/Info.plist
       properties:
+        <<: *accessoryPlist
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Notification Forward Data Provider
@@ -114,6 +116,10 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Notification Forward Transport
         UIBackgroundModes: [bluetooth-central]
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: be.robinvervoort.notificationforward.accessory-transport
+            UTTypeConformsTo: [public.data-access-protocol]
+            UTTypeDescription: Notification Forward accessory transport
         EXAppExtensionAttributes:
           EXExtensionPointIdentifier: com.apple.accessory-transport-extension
     entitlements:
