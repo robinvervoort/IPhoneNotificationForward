@@ -152,3 +152,11 @@ def test_keyx_uses_info_spelled_by_ios(tmp_path):
     assert bridge.sessions[IDENT].protocol_info == info.encode()
     expected = crypto.key_schedule("xWing", ss, info.encode())
     assert bridge.sessions[IDENT].exporter_secret == expected.exporter_secret
+
+
+def test_log_messages_are_logged_not_answered(tmp_path, caplog):
+    import logging
+    bridge = Bridge(str(tmp_path / "s.json"), lambda n: None)
+    with caplog.at_level(logging.INFO):
+        assert bridge.handle_message(protocol.encode_log("[transportsecurity] hello")) is None
+    assert "iPhone [transportsecurity] hello" in caplog.text

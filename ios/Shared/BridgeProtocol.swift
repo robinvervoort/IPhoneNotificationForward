@@ -40,6 +40,13 @@ enum BridgeProtocol {
         return d
     }
 
+    /// Diagnostics line for the bridge's log (no reply). Never notification content.
+    static func log(_ text: String) -> Data {
+        var d = Data([0x04])
+        d.append(Data(text.utf8.prefix(300)))
+        return d
+    }
+
     static func data(kind: DataKind, sessionID: UUID, payload: Data) -> Data {
         var d = Data([0x03, kind.rawValue])
         withUnsafeBytes(of: sessionID.uuid) { d.append(contentsOf: $0) }

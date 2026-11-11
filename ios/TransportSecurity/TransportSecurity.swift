@@ -37,13 +37,15 @@ final class SecurityEventHandler: AccessorySecuritySession.EventHandler {
     private func startKeyExchange() async {
         do {
             guard let peripheralID = SharedSettings.accessoryBluetoothID else { throw BridgeError.notPaired }
-            DiagnosticLog.log("Key exchange: asking bridge for its public key")
             let link = BLELink(peripheralID: peripheralID)
             self.link = link
+            DiagnosticLog.remote = { [weak link] line in link?.remoteLog(line) }
+            DiagnosticLog.log("Key exchange: asking bridge for its public key")
             identifier = peripheralID.uuidString
 
             let response = try await link.request(BridgeProtocol.getPublicKey(.xWing))
             let (_, publicKey) = try BridgeProtocol.parsePublicKey(response)
+            DiagnosticLog.log("Key exchange: got \(publicKey.count)-byte bridge key (X-Wing keys are 1216)")
 
             let message = SecurityMessage(
                 keyType: .publicKey,
@@ -56,7 +58,8 @@ final class SecurityEventHandler: AccessorySecuritySession.EventHandler {
             try session.sendSecurityMessage(message)
             DiagnosticLog.log("Key exchange: sent \(publicKey.count)-byte public key to iOS")
         } catch {
-            DiagnosticLog.log("Key exchange failed: \(error.localizedDescription)")
+            DiagnosticLog.log("Key exchange failed: \(String(describing: error)) – \(error.localizedDescription)")
+            try? await Task.sleep(for: .milliseconds(500))   // let the line reach the bridge
             link?.disconnect()
             link = nil
             session.cancel(error: .unknown)
