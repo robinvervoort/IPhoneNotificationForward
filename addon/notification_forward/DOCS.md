@@ -18,6 +18,24 @@ webhook automation, iPhone app).
 | `log_level` | `info` | `debug`, `info`, `warning`, `error` |
 | `hci_trace` | `false` | Low-level Bluetooth pairing trace (like `btmon`). Also needs `host_network: true` and `privileged: [NET_RAW]` in `config.yaml`, which are off by default |
 
+## Entities
+
+With the Mosquitto broker app installed, the bridge publishes one device,
+**iPhone Notification Forward**, via MQTT discovery:
+
+| Entity | What |
+|---|---|
+| `sensor.iphone_last_notification` | Last notification: `App: Title`, full notification as attributes |
+| `event.iphone_notification` | One event per notification change (`add`, `update`, `remove`, `remove_all`) |
+| `sensor.iphone_notifications_total` | Count of new notifications |
+| `sensor.iphone_notifications_<app>` | Count per app, created on the app's first notification |
+
+Counters are `total_increasing`, so Home Assistant keeps hourly/daily/monthly
+statistics (use a *Statistics graph* card). Counts are stored in
+`/data/counts.json`. Without MQTT the bridge falls back to a plain
+`sensor.iphone_last_notification` (no device, no counters). The
+`iphone_notification` bus event is fired either way.
+
 ## Keys
 
 The bridge's long-term keys and session secrets live in `/data/state.json`,
