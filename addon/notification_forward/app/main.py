@@ -80,7 +80,15 @@ async def run() -> None:
             hci_trace.start(loop)
 
         ble = BleServer(bridge, opts["device_name"], opts["adapter"] or None)
-        await ble.start()
+
+        async def start_bluetooth() -> None:
+            # Bluetooth problems must never take the internet route down with them.
+            try:
+                await ble.start()
+            except Exception:  # noqa: BLE001
+                log.exception("Bluetooth could not start; internet deliveries keep working")
+
+        loop.create_task(start_bluetooth())
         await ha.listen(opts["inbound_event_type"], on_inbound)
 
 
