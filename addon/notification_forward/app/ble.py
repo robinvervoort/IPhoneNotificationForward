@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from bless import BlessServer, GATTAttributePermissions, GATTCharacteristicProperties
+from dbus_next import Variant
 
 from . import protocol
 from .agent import setup_pairing
@@ -16,6 +17,39 @@ log = logging.getLogger(__name__)
 # iOS negotiates an ATT MTU of 185 with most adapters (182 bytes of payload).
 # Stay a little below so notifications are never truncated.
 NOTIFY_PACKET = 180
+
+
+async def advertise_with_retry(first_start, retry_advertising, power_cycle, sleep=asyncio.sleep,
+                               max_delay: float = 60) -> int:
+    """Start the GATT server, retrying the advertisement until BlueZ accepts it.
+
+    BlueZ sometimes refuses to (re)enable advertising, e.g. "Opcode 0x2039
+    failed: -31" when the controller has stale connection state. From the
+    second failure on, the adapter is power-cycled before retrying. Never
+    raises for advertising failures, so the rest of the bridge keeps running.
+    Returns the number of attempts it took.
+    """
+    attempt = 1
+    try:
+        await first_start()
+        return attempt
+    except Exception as e:  # noqa: BLE001 - BlueZ reports this as a generic DBusError
+        log.warning("Advertising failed (%s); Bluetooth retries in the background, "
+                    "the internet route keeps working", e)
+    while True:
+        attempt += 1
+        if attempt >= 3:
+            try:
+                await power_cycle()
+            except Exception as e:  # noqa: BLE001
+                log.warning("Could not power-cycle the Bluetooth adapter: %s", e)
+        await sleep(min(max_delay, 5 * attempt))
+        try:
+            await retry_advertising()
+            log.info("Advertising started after %d attempts", attempt)
+            return attempt
+        except Exception as e:  # noqa: BLE001
+            log.warning("Advertising attempt %d failed: %s", attempt, e)
 
 
 class BleServer:
@@ -44,9 +78,24 @@ class BleServer:
             protocol.SERVICE_UUID, protocol.TX_UUID,
             GATTCharacteristicProperties.notify | GATTCharacteristicProperties.read,
             bytearray(), GATTAttributePermissions.readable)
-        await self.server.start()
         loop.create_task(self._sender())
+        await advertise_with_retry(self.server.start, self._retry_advertising, self._power_cycle)
         log.info("Advertising as %r with service %s", self.name, protocol.SERVICE_UUID)
+
+    async def _retry_advertising(self) -> None:
+        # The GATT application stays registered; only the advertisement failed.
+        assert self.server is not None
+        await self.server.app.start_advertising(self.server.adapter)
+
+    async def _power_cycle(self) -> None:
+        """Adapter off and on clears a controller stuck refusing advertising."""
+        assert self.server is not None
+        props = self.server.adapter.get_interface("org.freedesktop.DBus.Properties")
+        log.info("Power-cycling the Bluetooth adapter to clear its state")
+        await props.call_set("org.bluez.Adapter1", "Powered", Variant("b", False))
+        await asyncio.sleep(2)
+        await props.call_set("org.bluez.Adapter1", "Powered", Variant("b", True))
+        await asyncio.sleep(2)
 
     def _on_read(self, characteristic, **_kwargs) -> bytearray:
         return characteristic.value or bytearray()
