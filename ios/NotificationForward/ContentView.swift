@@ -69,6 +69,20 @@ struct ContentView: View {
                          + "Shows app names, never notification text.")
                 }
 
+                Section {
+                    Button("Test \u{201C}not forwarded\u{201D} warning") {
+                        Task {
+                            await DeliveryAlert.deliveryFailed(reason: "test", delay: 5)
+                            diagnostics = DiagnosticLog.read()
+                        }
+                    }
+                } header: {
+                    Text("Delivery warning")
+                } footer: {
+                    Text("If a notification can't be delivered to Home Assistant, this iPhone warns you "
+                         + "after a minute. The test shows the warning in 5 seconds; lock the phone to see it.")
+                }
+
                 if let error = manager.lastError {
                     Section("Last error") {
                         Text(error).foregroundStyle(.red)

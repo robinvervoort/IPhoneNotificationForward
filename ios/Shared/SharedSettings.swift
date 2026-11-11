@@ -19,4 +19,11 @@ enum SharedSettings {
         get { defaults.string(forKey: "webhookURL").flatMap(URL.init(string:)) }
         set { defaults.set(newValue?.absoluteString, forKey: "webhookURL") }
     }
+
+    /// True while a "notification not forwarded" warning is scheduled, so a
+    /// later successful delivery knows it has one to cancel.
+    static var deliveryAlertPending: Bool {
+        get { defaults.bool(forKey: "deliveryAlertPending") }
+        set { defaults.set(newValue, forKey: "deliveryAlertPending") }
+    }
 }

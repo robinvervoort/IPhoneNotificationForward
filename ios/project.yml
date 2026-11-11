@@ -49,6 +49,7 @@ targets:
       path: NotificationForward/NotificationForward.entitlements
       properties:
         com.apple.security.application-groups: [group.be.robinvervoort.notificationforward]
+        com.apple.developer.usernotifications.time-sensitive: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.notificationforward
@@ -127,6 +128,8 @@ targets:
       properties:
         com.apple.developer.accessory-transport-extension: true
         com.apple.security.application-groups: [group.be.robinvervoort.notificationforward]
+        # The "notification not forwarded" warning may break through Focus.
+        com.apple.developer.usernotifications.time-sensitive: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: be.robinvervoort.notificationforward.transport
