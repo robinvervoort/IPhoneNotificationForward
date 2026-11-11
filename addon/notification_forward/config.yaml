@@ -1,5 +1,5 @@
 name: iPhone Notification Forward
-version: "0.1.5"
+version: "0.1.6"
 slug: notification_forward
 description: Receive your iPhone's notifications in Home Assistant via Apple notification forwarding (EU)
 url: https://github.com/robinvervoort/IPhoneNotificationForward
@@ -10,11 +10,6 @@ init: false
 startup: services
 boot: auto
 host_dbus: true
-# Host networking + NET_RAW only for the optional HCI trace (hci_trace):
-# Bluetooth sockets exist only in the host network namespace.
-host_network: true
-privileged:
-  - NET_RAW
 homeassistant_api: true
 options:
   adapter: hci0
@@ -23,7 +18,7 @@ options:
   sensor_entity: sensor.iphone_last_notification
   inbound_event_type: notification_forward_inbound
   log_level: info
-  hci_trace: true
+  hci_trace: false
 schema:
   adapter: str
   device_name: str

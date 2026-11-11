@@ -28,7 +28,7 @@ def load_options() -> dict:
         "sensor_entity": "sensor.iphone_last_notification",
         "inbound_event_type": "notification_forward_inbound",
         "log_level": "info",
-        "hci_trace": True,
+        "hci_trace": False,
     }
     if os.path.exists(OPTIONS_PATH):
         with open(OPTIONS_PATH) as f:

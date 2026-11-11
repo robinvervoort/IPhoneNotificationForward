@@ -96,7 +96,10 @@ class NotificationSink:
         elif action == "remove_all":
             self.active.clear()
 
-        log.info("%s: %s - %s", action, note.get("app"), note.get("title"))
+        if action in ("add", "update"):
+            log.info("%s: %s - %s", action, note.get("app"), note.get("title"))
+        else:
+            log.info("%s: %s", action, nid if action == "remove" else "all notifications")
         await self.ha.fire_event(self.event_type, note)
 
         last = self.last
