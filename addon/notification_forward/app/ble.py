@@ -63,7 +63,10 @@ class BleServer:
             return
         response = self.bridge.handle_message(message)
         if response:
-            for packet in protocol.chunk(response, NOTIFY_PACKET):
+            packets = protocol.chunk(response, NOTIFY_PACKET)
+            log.info("Reply 0x%02x: %d bytes in %d notifications of <= %d bytes",
+                     response[0], len(response), len(packets), NOTIFY_PACKET)
+            for packet in packets:
                 self._outbox.put_nowait(packet)
 
     async def _sender(self) -> None:

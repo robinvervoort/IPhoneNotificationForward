@@ -64,6 +64,7 @@ final class TransportEventHandler: AccessoryTransportSession.EventHandler {
         // background relaunch when the bridge notifies.
         let link = BLELink(peripheralID: id, restoreIdentifier: session.transportStateRestoreIdentifier)
         self.link = link
+        DiagnosticLog.remote = { [weak link] line in link?.remoteLog(line) }
         return link
     }
 

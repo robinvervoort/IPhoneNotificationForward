@@ -125,14 +125,21 @@ class Bridge:
         """Handle one reassembled GATT message; return a response message."""
         try:
             msg = protocol.parse(message)
+            if isinstance(msg, protocol.Log):
+                log.info("iPhone %s", msg.text)
+                return None
             if isinstance(msg, protocol.GetPubKey):
                 key = self.keys[msg.suite]
                 log.info("iPhone requested %s public key", msg.suite)
                 return protocol.encode_pubkey(msg.suite, key.public_bytes())
             if isinstance(msg, protocol.KeyExchange):
+                log.info("KEYX received: %s, %d-byte encapsulated key, info %r",
+                         msg.suite, len(msg.encapsulated_key), msg.info)
                 self.key_exchange(msg.suite, msg.identifier, msg.encapsulated_key, msg.info)
                 return protocol.encode_result(True)
             if isinstance(msg, protocol.Data):
+                log.info("Bluetooth DATA received: %d bytes (kind %d, session %s)",
+                         len(msg.data), msg.kind, msg.session_id[:8])
                 self.bluetooth_data(msg.kind, msg.session_id, msg.data)
                 return None  # data writes are acknowledged by the ATT write response
         except Exception as e:  # noqa: BLE001 - report every failure to the phone

@@ -21,6 +21,7 @@ iPhone -> bridge
   0x02 KEYX        [suite u8][id_len u16 BE][identifier utf8]
                    [info_len u16 BE][HPKE info utf8, as iOS spells it][encapsulated key]
   0x03 DATA        [kind u8: 1=ciphertext 2=plaintext][session UUID 16 bytes][data]
+  0x04 LOG         [utf8 text]  diagnostics from the iPhone extensions (no reply)
 bridge -> iPhone
   0x81 PUBKEY      [suite u8][public key]
   0x82 RESULT      [status u8: 0=ok, 1=error][utf8 message]
@@ -43,6 +44,7 @@ SEQ_MASK = 0x3F
 MSG_GET_PUBKEY = 0x01
 MSG_KEYX = 0x02
 MSG_DATA = 0x03
+MSG_LOG = 0x04
 MSG_PUBKEY = 0x81
 MSG_RESULT = 0x82
 
@@ -125,6 +127,11 @@ class Data:
     data: bytes
 
 
+@dataclass
+class Log:
+    text: str
+
+
 def _suite(code: int) -> str:
     try:
         return SUITES[code]
@@ -159,6 +166,8 @@ def parse(message: bytes):
         if not enc:
             raise ProtocolError("KEYX without encapsulated key")
         return KeyExchange(suite, fields[0], fields[1], enc)
+    if t == MSG_LOG:
+        return Log(body.decode("utf-8", "replace"))
     if t == MSG_DATA:
         if len(body) < 17:
             raise ProtocolError("bad DATA")
@@ -189,3 +198,7 @@ def encode_keyx(suite: str, identifier: str, enc: bytes, info: str | None = None
 
 def encode_data(kind: int, session_id: str, data: bytes) -> bytes:
     return bytes([MSG_DATA, kind]) + uuid.UUID(session_id).bytes + data
+
+
+def encode_log(text: str) -> bytes:
+    return bytes([MSG_LOG]) + text.encode()

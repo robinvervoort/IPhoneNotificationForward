@@ -17,6 +17,10 @@ enum DiagnosticLog {
 
     private static var defaults: UserDefaults? { UserDefaults(suiteName: SharedSettings.appGroup) }
 
+    /// Extensions can't persist anything we can read back, so they forward their
+    /// lines to the bridge over Bluetooth; set by the extension that owns the link.
+    static var remote: ((String) -> Void)?
+
     /// Short name of the running process: notificationforward, dataprovider, transportsecurity, transport.
     private static let source: String = {
         let id = Bundle.main.bundleIdentifier ?? "?"
@@ -25,6 +29,7 @@ enum DiagnosticLog {
 
     static func log(_ message: String) {
         logger.log("\(message, privacy: .public)")
+        remote?("[\(source)] \(message)")
         guard let defaults else { return }
         let now = Date()
         let stamp = ISO8601DateFormatter.string(from: now, timeZone: .current,

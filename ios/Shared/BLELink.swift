@@ -14,12 +14,16 @@ final class BLELink: NSObject, @unchecked Sendable {
     private var reassembler = BridgeProtocol.Reassembler()
 
     private var readyWaiters: [Int: CheckedContinuation<Void, Error>] = [:]
-    private var writeWaiter: (token: Int, continuation: CheckedContinuation<Void, Error>)?
+    private var writeWaiter: (token: Int, continuation: CheckedContinuation<Void, Error>, quiet: Bool)?
     private var responseWaiter: (token: Int, continuation: CheckedContinuation<Data, Error>)?
     private var nextToken = 0
     private var isScanning = false
     private var serviceUUID: CBUUID { CBUUID(string: BridgeProtocol.serviceUUID) }
     private var isReady: Bool { peripheral?.state == .connected && rx != nil && tx?.isNotifying == true }
+    private let sendGate = SendGate()
+    private var pendingRemote: [String] = []
+    private var rxPackets = 0
+    private var rxLargest = 0
 
     /// `deviceAccess` adds CBCentralManagerOptionDeviceAccessForMedia, which the
     /// extensions use (as in the working Pebble code); the app must not set it,
@@ -53,7 +57,39 @@ final class BLELink: NSObject, @unchecked Sendable {
     }
 
     /// Sends one logical message, chunked to the negotiated MTU, each chunk acknowledged.
-    func send(_ message: Data) async throws {
+    /// Messages are sent one at a time: there is a single write-acknowledgement slot.
+    func send(_ message: Data, quiet: Bool = false) async throws {
+        await sendGate.acquire()
+        do {
+            try await sendNow(message, quiet: quiet)
+            await sendGate.release()
+        } catch {
+            await sendGate.release()
+            throw error
+        }
+    }
+
+    /// Forwards a diagnostics line to the bridge; buffered until the link is ready.
+    func remoteLog(_ text: String) {
+        queue.async {
+            guard self.isReady else {
+                if self.pendingRemote.count < 40 { self.pendingRemote.append(text) }
+                return
+            }
+            Task { try? await self.send(BridgeProtocol.log(text), quiet: true) }
+        }
+    }
+
+    private func flushRemote() {
+        let lines = pendingRemote
+        pendingRemote.removeAll()
+        guard !lines.isEmpty else { return }
+        Task {
+            for line in lines { try? await self.send(BridgeProtocol.log(line), quiet: true) }
+        }
+    }
+
+    private func sendNow(_ message: Data, quiet: Bool) async throws {
         try await connect()
         let maxLen = queue.sync { peripheral?.maximumWriteValueLength(for: .withResponse) ?? 20 }
         for packet in BridgeProtocol.chunk(message, maxPacket: maxLen) {
@@ -63,7 +99,7 @@ final class BLELink: NSObject, @unchecked Sendable {
                         c.resume(throwing: BridgeError.disconnected); return
                     }
                     let token = self.makeToken()
-                    self.writeWaiter = (token, c)
+                    self.writeWaiter = (token, c, quiet)
                     self.queue.asyncAfter(deadline: .now() + 10) {
                         guard let w = self.writeWaiter, w.token == token else { return }
                         self.writeWaiter = nil
@@ -139,7 +175,12 @@ final class BLELink: NSObject, @unchecked Sendable {
             } else {
                 let waiters = readyWaiters.values
                 readyWaiters.removeAll()
+                if !waiters.isEmpty {
+                    DiagnosticLog.log("BLE: ready, write max \(p.maximumWriteValueLength(for: .withResponse)), "
+                                      + "packet max \(p.maximumWriteValueLength(for: .withoutResponse))")
+                }
                 waiters.forEach { $0.resume() }
+                flushRemote()
             }
         default:
             break
@@ -239,15 +280,52 @@ extension BLELink: CBCentralManagerDelegate, CBPeripheralDelegate {
 
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         let waiter = writeWaiter?.continuation
+        let quiet = writeWaiter?.quiet ?? false
         writeWaiter = nil
-        if let error { DiagnosticLog.log("BLE: write failed: \(error.localizedDescription)") }
+        if let error, !quiet { DiagnosticLog.log("BLE: write failed: \(error.localizedDescription)") }
         if let error { waiter?.resume(throwing: error) } else { waiter?.resume() }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard characteristic.uuid == CBUUID(string: BridgeProtocol.txUUID), let value = characteristic.value,
-              let message = reassembler.feed(value) else { return }
+              let header = value.first else { return }
+        if header & 0x80 != 0 { rxPackets = 0; rxLargest = 0 }   // START
+        rxPackets += 1
+        rxLargest = max(rxLargest, value.count)
+        guard let message = reassembler.feed(value) else {
+            if header & 0x40 != 0 {                                // END without a complete message
+                DiagnosticLog.log("BLE: dropped reply: packet \(rxPackets) out of sequence or incomplete "
+                                  + "(\(value.count) bytes, largest \(rxLargest))")
+            }
+            return
+        }
+        DiagnosticLog.log("BLE: reply 0x\(String(format: "%02x", message.first ?? 0)): \(message.count) bytes "
+                          + "in \(rxPackets) packets (largest \(rxLargest))")
+        if responseWaiter == nil { DiagnosticLog.log("BLE: reply arrived but nobody was waiting for it") }
         responseWaiter?.continuation.resume(returning: message)
         responseWaiter = nil
+    }
+}
+
+
+/// Lets one `send` run at a time (CoreBluetooth gives one write callback per write).
+private actor SendGate {
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        if !busy {
+            busy = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            busy = false
+        } else {
+            waiters.removeFirst().resume()
+        }
     }
 }
