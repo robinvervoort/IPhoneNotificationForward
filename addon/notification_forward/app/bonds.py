@@ -1,10 +1,16 @@
-"""Watch BlueZ devices on the adapter: log bonds, connects and removals.
+"""Watch BlueZ devices on the adapter: log bonds and connects; stop auto-connect.
 
 iPhones use rotating private addresses; a bonded peer is recognised by the
 identity key stored during pairing. If the bridge keeps forgetting the
 iPhone ("Peer removed pairing information" on the phone), these logs show
 whether the bond is stored (Paired/Bonded), whether it gets removed (and
-when), and mark paired devices Trusted so BlueZ treats them as known.
+when).
+
+BlueZ auto-connects (as central) to bonded devices it sees advertising, so
+the bridge kept connecting to the iPhone itself and timing out every few
+seconds. Calling Device1.Disconnect once makes BlueZ drop the device from
+its auto-connect list until something explicitly connects again; the
+iPhone keeps connecting to the bridge as before.
 """
 
 from __future__ import annotations
@@ -38,14 +44,19 @@ async def _add_match(bus: MessageBus, rule: str) -> None:
                            signature="s", body=[rule]))
 
 
-async def _set_trusted(bus: MessageBus, path: str) -> None:
-    reply = await bus.call(Message(destination="org.bluez", path=path,
-                                   interface="org.freedesktop.DBus.Properties", member="Set",
-                                   signature="ssv", body=[DEVICE, "Trusted", Variant("b", True)]))
+DISABLE_AUTOCONNECT_DELAY = 3.0  # seconds after a connect, so it never cuts a pairing short
+
+
+async def _disable_autoconnect(bus: MessageBus, path: str) -> None:
+    """Device1.Disconnect sets BlueZ's disable_auto_connect for this device."""
+    await asyncio.sleep(DISABLE_AUTOCONNECT_DELAY)
+    reply = await bus.call(Message(destination="org.bluez", path=path, interface=DEVICE,
+                                   member="Disconnect"))
+    name = path.rsplit("/", 1)[-1]
     if reply.message_type == MessageType.ERROR:
-        log.warning("Could not mark %s trusted: %s", path, reply.body)
-    else:
-        log.info("Marked %s trusted", path.rsplit("/", 1)[-1])
+        log.info("Auto-connect for %s not disabled yet (%s); will retry on next connect", name, reply.body)
+        raise RuntimeError("not connected")
+    log.info("Disabled BlueZ auto-connect to %s (one short disconnect; the iPhone reconnects itself)", name)
 
 
 async def watch_devices(bus: MessageBus, adapter: str) -> None:
@@ -61,8 +72,27 @@ async def watch_devices(bus: MessageBus, adapter: str) -> None:
     log.info("BlueZ knows %d device(s) on %s, %d paired", len(devices), adapter, len(paired))
     for p in paired:
         log.info("  paired: %s", _describe(p, devices[p]))
-        if not _val(devices[p].get("Trusted")):
-            loop.create_task(_set_trusted(bus, p))
+
+    # Per bluetoothd lifetime: once disabled, auto-connect stays off.
+    autoconnect_disabled: set[str] = set()
+    pending: set[str] = set()
+    paired_paths = set(paired)
+
+    def maybe_disable(path: str) -> None:
+        if path in autoconnect_disabled or path in pending or path not in paired_paths:
+            return
+        pending.add(path)
+
+        async def run() -> None:
+            try:
+                await _disable_autoconnect(bus, path)
+                autoconnect_disabled.add(path)
+            except Exception:  # noqa: BLE001 - retried on the next connect
+                pass
+            finally:
+                pending.discard(path)
+
+        loop.create_task(run())
 
     def on_message(msg: Message):
         if msg.message_type != MessageType.SIGNAL or not msg.path:
@@ -71,8 +101,10 @@ async def watch_devices(bus: MessageBus, adapter: str) -> None:
             changed = {k: _val(v) for k, v in msg.body[1].items() if k in WATCHED}
             if changed:
                 log.info("Device %s: %s", msg.path.rsplit("/", 1)[-1], changed)
-            if changed.get("Paired") is True:
-                loop.create_task(_set_trusted(bus, msg.path))
+            if changed.get("Paired") is True or changed.get("Bonded") is True:
+                paired_paths.add(msg.path)
+            if changed.get("Connected") is True:
+                maybe_disable(msg.path)
         elif msg.member == "InterfacesRemoved" and msg.body and str(msg.body[0]).startswith(prefix) \
                 and DEVICE in msg.body[1]:
             log.info("Device %s dropped from BlueZ's cache", str(msg.body[0]).rsplit("/", 1)[-1])

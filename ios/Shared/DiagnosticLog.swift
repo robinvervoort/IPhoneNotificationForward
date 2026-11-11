@@ -1,20 +1,23 @@
 import Foundation
 import os
 
-/// Tiny shared log so the extensions' activity (each runs in its own process)
-/// can be read inside the app. Stored in the app group; keeps the last lines.
+/// Small shared log so the extensions' activity (each runs in its own process)
+/// can be read inside the app.
+///
+/// Stored in the app group's shared UserDefaults rather than a file: the
+/// extensions can read and write the shared settings (the key exchange relies
+/// on them), but their writes to a file in the group container never showed up.
+/// Each process keeps its own list, so processes never overwrite each other;
+/// the app merges them by time when displaying.
 enum DiagnosticLog {
-    private static let maxLines = 300
+    private static let maxPerSource = 150
+    private static let keyPrefix = "diag."
     private static let lock = NSLock()
     private static let logger = Logger(subsystem: "be.robinvervoort.notificationforward", category: "diag")
 
-    private static var fileURL: URL? {
-        FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: SharedSettings.appGroup)?
-            .appendingPathComponent("diagnostics.log")
-    }
+    private static var defaults: UserDefaults? { UserDefaults(suiteName: SharedSettings.appGroup) }
 
-    /// Short name of the running process: app, DataProvider, TransportSecurity, Transport.
+    /// Short name of the running process: notificationforward, dataprovider, transportsecurity, transport.
     private static let source: String = {
         let id = Bundle.main.bundleIdentifier ?? "?"
         return id.split(separator: ".").last.map(String.init) ?? id
@@ -22,33 +25,38 @@ enum DiagnosticLog {
 
     static func log(_ message: String) {
         logger.log("\(message, privacy: .public)")
-        guard let url = fileURL else { return }
-        let stamp = ISO8601DateFormatter.string(from: Date(), timeZone: .current,
+        guard let defaults else { return }
+        let now = Date()
+        let stamp = ISO8601DateFormatter.string(from: now, timeZone: .current,
                                                 formatOptions: [.withTime, .withColonSeparatorInTime])
-        let line = Data("\(stamp) [\(source)] \(message)\n".utf8)
-        // Append-only with O_APPEND: the app and each extension are separate
-        // processes, and a read-modify-write would let them overwrite each other.
+        // "<epoch>|<display line>": the epoch is only used for sorting.
+        let entry = "\(now.timeIntervalSince1970)|\(stamp) [\(source)] \(message)"
         lock.lock()
         defer { lock.unlock() }
-        let fd = open(url.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
-        guard fd >= 0 else { return }
-        _ = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
-        close(fd)
+        let key = keyPrefix + source
+        var lines = defaults.stringArray(forKey: key) ?? []
+        lines.append(entry)
+        if lines.count > maxPerSource { lines.removeFirst(lines.count - maxPerSource) }
+        defaults.set(lines, forKey: key)
     }
 
-    /// Returns the log and trims it to the newest lines (called from the app only).
+    /// All processes' lines, oldest first.
     static func read() -> String {
-        guard let url = fileURL else { return "(app group unavailable)" }
-        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
-        guard lines.count > maxLines else { return text }
-        let trimmed = lines.suffix(maxLines).joined(separator: "\n") + "\n"
-        try? trimmed.write(to: url, atomically: true, encoding: .utf8)
-        return trimmed
+        guard let defaults else { return "(app group unavailable)" }
+        let entries = defaults.dictionaryRepresentation()
+            .filter { $0.key.hasPrefix(keyPrefix) }
+            .flatMap { ($0.value as? [String]) ?? [] }
+        let sorted = entries.compactMap { entry -> (Double, Substring)? in
+            guard let bar = entry.firstIndex(of: "|"), let t = Double(entry[..<bar]) else { return nil }
+            return (t, entry[entry.index(after: bar)...])
+        }.sorted { $0.0 < $1.0 }
+        return sorted.map { String($0.1) }.joined(separator: "\n")
     }
 
     static func clear() {
-        guard let url = fileURL else { return }
-        try? FileManager.default.removeItem(at: url)
+        guard let defaults else { return }
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(keyPrefix) {
+            defaults.removeObject(forKey: key)
+        }
     }
 }

@@ -16,6 +16,7 @@ webhook automation, iPhone app).
 | `sensor_entity` | `sensor.iphone_last_notification` | Sensor updated with the latest notification |
 | `inbound_event_type` | `notification_forward_inbound` | Event your webhook automation fires for internet deliveries |
 | `log_level` | `info` | `debug`, `info`, `warning`, `error` |
+| `hci_trace` | `false` | Low-level Bluetooth pairing trace (like `btmon`). Also needs `host_network: true` and `privileged: [NET_RAW]` in `config.yaml`, which are off by default |
 
 ## Keys
 
