@@ -3,3 +3,5 @@ bless==0.3.0
 bleak==3.0.2
 dbus-next==0.2.3
 cryptography==50.0.2
+aiomqtt==2.5.1
+paho-mqtt==2.2.0

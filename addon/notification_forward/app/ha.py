@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 
 API = "http://supervisor/core/api"
 WS = "ws://supervisor/core/websocket"
+SUPERVISOR = "http://supervisor"
 
 
 class HomeAssistant:
@@ -37,6 +38,24 @@ class HomeAssistant:
                                       headers=self._headers) as r:
             if r.status >= 300:
                 log.warning("Updating %s failed: %s %s", entity_id, r.status, await r.text())
+
+    async def delete_state(self, entity_id: str) -> None:
+        """Remove a state set through the REST API (not a registry entity)."""
+        async with self._session.delete(f"{API}/states/{entity_id}", headers=self._headers) as r:
+            if r.status == 200:
+                log.info("Removed the old REST-created %s (now an MQTT entity on a device)", entity_id)
+
+    async def mqtt_service(self) -> dict | None:
+        """MQTT broker details from the Supervisor (Mosquitto app), if available."""
+        try:
+            async with self._session.get(f"{SUPERVISOR}/services/mqtt", headers=self._headers) as r:
+                if r.status != 200:
+                    log.warning("No MQTT service from Supervisor (HTTP %s)", r.status)
+                    return None
+                return (await r.json()).get("data") or None
+        except aiohttp.ClientError as e:
+            log.warning("Could not ask the Supervisor for MQTT: %s", e)
+            return None
 
     async def listen(self, event_type: str, handler: Callable[[dict], Awaitable[None] | None]) -> None:
         """Subscribe to ``event_type`` forever, reconnecting on errors."""
@@ -75,10 +94,11 @@ class NotificationSink:
 
     MAX_ACTIVE = 50
 
-    def __init__(self, ha: HomeAssistant, event_type: str, sensor_entity: str):
+    def __init__(self, ha: HomeAssistant, event_type: str, sensor_entity: str, mqtt=None):
         self.ha = ha
         self.event_type = event_type
         self.sensor_entity = sensor_entity
+        self.mqtt = mqtt  # MqttPublisher: device entities + counters; None = REST sensor only
         self.active: dict[str, dict] = {}
         self.last: dict = {}
 
@@ -104,10 +124,14 @@ class NotificationSink:
 
         last = self.last
         state = ": ".join(x for x in (last.get("app"), last.get("title") or last.get("body")) if x)
-        await self.ha.set_state(self.sensor_entity, (state or "none")[:255], {
-            "friendly_name": "iPhone last notification",
-            "icon": "mdi:cellphone-message",
+        state = (state or "none")[:255]
+        attrs = {
             **{k: v for k, v in last.items() if k != "transport"},
             "active_count": len(self.active),
             "active": list(self.active.values()),
-        })
+        }
+        if self.mqtt is not None:
+            await self.mqtt.notification(note, state, attrs)
+        else:
+            await self.ha.set_state(self.sensor_entity, state, {
+                "friendly_name": "iPhone last notification", "icon": "mdi:cellphone-message", **attrs})

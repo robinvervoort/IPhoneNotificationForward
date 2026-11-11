@@ -13,9 +13,12 @@ from . import hci_trace
 from .ble import BleServer
 from .bridge import Bridge
 from .ha import HomeAssistant, NotificationSink
+from .mqtt import CountStore, MqttPublisher
 
 OPTIONS_PATH = "/data/options.json"
 STATE_PATH = "/data/state.json"
+COUNTS_PATH = "/data/counts.json"
+VERSION = os.environ.get("BUILD_VERSION", "")
 
 log = logging.getLogger("notification_forward")
 
@@ -46,8 +49,21 @@ async def run() -> None:
 
     async with aiohttp.ClientSession() as session:
         ha = HomeAssistant(session, token)
-        sink = NotificationSink(ha, opts["event_type"], opts["sensor_entity"])
         loop = asyncio.get_running_loop()
+
+        # Device + counters through MQTT discovery when the Mosquitto app is there.
+        publisher = None
+        broker = await ha.mqtt_service()
+        if broker:
+            await ha.delete_state(opts["sensor_entity"])  # free the entity id for the MQTT sensor
+            publisher = MqttPublisher(broker["host"], int(broker.get("port", 1883)), broker.get("username"),
+                                      broker.get("password"), VERSION or "?", opts["sensor_entity"],
+                                      CountStore(COUNTS_PATH))
+            loop.create_task(publisher.run())
+        else:
+            log.warning("MQTT unavailable: keeping the plain %s sensor (no device, no counters)",
+                        opts["sensor_entity"])
+        sink = NotificationSink(ha, opts["event_type"], opts["sensor_entity"], publisher)
 
         def on_notification(note: dict) -> None:
             loop.create_task(sink.handle(note))
