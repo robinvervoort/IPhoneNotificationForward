@@ -26,6 +26,12 @@ final class TransportEventHandler: AccessoryTransportSession.EventHandler {
                          completion: @escaping @Sendable (AccessoryMessage.Result) -> Void) {
         let transport = session.transport
         DiagnosticLog.log("Transport: \(message.data.count) bytes via \(transport.map { "\($0)" } ?? "none")")
+        let via: String
+        switch transport {
+        case .bluetooth: via = "Bluetooth"
+        case .internet, .localNetwork: via = "internet"
+        default: via = "no connection"
+        }
         Task {
             do {
                 switch transport {
@@ -35,16 +41,21 @@ final class TransportEventHandler: AccessoryTransportSession.EventHandler {
                     try await sendOverInternet(message)
                 default: // nil (no transport) or a future transport type
                     completion(.failure(.transportUnavailable))
+                    await DeliveryAlert.deliveryFailed(reason: "no connection to the bridge or Home Assistant")
                     return
                 }
                 DiagnosticLog.log("Transport: delivered")
                 completion(.success)
+                DeliveryAlert.delivered()
             } catch BridgeError.notPaired, BridgeError.noWebhook, BridgeError.peripheralNotFound {
                 DiagnosticLog.log("Transport: unavailable (not paired or no webhook URL)")
                 completion(.failure(.transportUnavailable))
+                await DeliveryAlert.deliveryFailed(reason: "\(via): bridge not paired, not found, or no webhook URL")
             } catch {
                 DiagnosticLog.log("Transport failed: \(error.localizedDescription)")
                 completion(.failure(.transportFailed)) // the system retries / picks another transport
+                // Reported only if no delivery succeeds within the grace period.
+                await DeliveryAlert.deliveryFailed(reason: "\(via): \(error.localizedDescription)")
             }
         }
     }

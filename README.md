@@ -143,6 +143,20 @@ triggers:
       app: WhatsApp
 ```
 
+## Knowing when forwarding stops
+
+If you rely on forwarded notifications (for example on-call alerts), use two checks:
+
+- **On the iPhone:** when a notification can't be delivered to Home Assistant (bridge out of
+  range and Home Assistant unreachable, or Home Assistant down), the app shows a time-sensitive
+  "Notification not forwarded" warning after a minute, unless a later delivery succeeds first.
+  After a warning, the next one waits 15 minutes. Allow notifications for the app when it asks;
+  the app has a button to test the warning.
+- **In Home Assistant:** an automation can send a quiet push to the phone every few minutes
+  (Home Assistant Companion app, `interruption-level: passive`, `group: nf-healthcheck`) and
+  check that it comes back as an `add` with `thread: nf-healthcheck`. If it doesn't, alert.
+  This also catches the iPhone silently no longer forwarding.
+
 ## Status and caveats
 
 - The add-on's cryptography is unit-tested against the `cryptography` library's
