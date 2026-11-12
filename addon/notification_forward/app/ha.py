@@ -59,6 +59,15 @@ class HomeAssistant:
             log.warning("Could not ask the Supervisor for MQTT: %s", e)
             return None
 
+    async def ping(self) -> bool:
+        """True when Home Assistant Core answers its API."""
+        try:
+            async with self._session.get(f"{API}/", headers=self._headers,
+                                         timeout=aiohttp.ClientTimeout(total=10)) as r:
+                return r.status == 200
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            return False
+
     async def config(self) -> dict:
         """Home Assistant's core config (time zone etc.); empty on failure."""
         try:

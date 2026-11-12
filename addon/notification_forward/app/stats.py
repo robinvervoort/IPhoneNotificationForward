@@ -21,13 +21,14 @@ import re
 import tempfile
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, time, timedelta, tzinfo
 
 log = logging.getLogger(__name__)
 
 DAYS = 7
 SEEN_MAX = 1000
 RECENT_MAX = 10
+NIGHT_ITEMS_MAX = 300   # notifications kept for the "last night" summary (about two nights)
 INVISIBLE = re.compile(r"[‎‏‪-‮⁦-⁩]")  # RTL/LTR marks (e.g. "‎WhatsApp")
 
 
@@ -73,11 +74,46 @@ class SummaryRule:
         return {"subject": subject, **{k: (v or "").strip() for k, v in m.groupdict().items()}}
 
 
+class NightWindow:
+    """A daily window such as 23:00-06:30 (may cross midnight)."""
+
+    def __init__(self, spec: str):
+        start, end = (part.strip() for part in spec.split("-"))
+        self.spec = f"{start}-{end}"
+        self.start = time.fromisoformat(start)
+        self.end = time.fromisoformat(end)
+
+    def contains(self, local: datetime) -> bool:
+        t = local.time()
+        if self.start > self.end:
+            return t >= self.start or t < self.end
+        return self.start <= t < self.end
+
+    def latest(self, now: datetime) -> tuple[datetime, datetime]:
+        """The current night if it is running, else the one that ended last."""
+        def at(day, t):
+            return datetime.combine(day, t, tzinfo=now.tzinfo)
+
+        today = now.date()
+        yesterday = today - timedelta(days=1)
+        if self.start > self.end:
+            if now.time() >= self.start:
+                return at(today, self.start), at(today + timedelta(days=1), self.end)
+            return at(yesterday, self.start), at(today, self.end)
+        if now.time() >= self.start:
+            return at(today, self.start), at(today, self.end)
+        return at(yesterday, self.start), at(yesterday, self.end)
+
+
 class WeeklyStats:
-    def __init__(self, path: str, rules: list[SummaryRule], tz: tzinfo | None = None):
+    def __init__(self, path: str, rules: list[SummaryRule], tz: tzinfo | None = None,
+                 night: NightWindow | None = None):
         self.path = path
         self.rules = rules
         self.tz = tz
+        self.night = night
+        # night: notifications that arrived inside the night window (newest last)
+        self.night_items: list[dict] = []
         # days: {"YYYY-MM-DD": {app: count}}
         # summaries: {rule: {"days": {day: {"total": n, "<group>": {value: n}}}, "recent": [...]}}
         self.days: dict[str, dict[str, int]] = {}
@@ -91,6 +127,7 @@ class WeeklyStats:
             self.days = data.get("days", {})
             self.summaries = data.get("summaries", {})
             self.seen = data.get("seen", [])
+            self.night_items = data.get("night", [])
             # 0.3.0/0.3.1 saved "history_imported" after reading nothing; import again.
             self.history_imported = data.get("history_imported_v2", False)
             self.loaded = True
@@ -121,10 +158,12 @@ class WeeklyStats:
         apps = self.days.setdefault(day, {})
         apps[app] = apps.get(app, 0) + 1
 
+        alerts = []
         for rule in self.rules:
             hit = rule.match(note)
             if hit is None:
                 continue
+            alerts.append({"summary": rule.name, **hit})
             summary = self.summaries.setdefault(rule.name, {"days": {}, "recent": []})
             bucket = summary["days"].setdefault(day, {"total": 0})
             bucket["total"] += 1
@@ -134,6 +173,17 @@ class WeeklyStats:
             # Newest first; history imports can arrive older than what is already there.
             summary["recent"] = sorted([{"time": local.isoformat(timespec="seconds"), **hit}, *summary["recent"]],
                                        key=lambda r: r["time"], reverse=True)[:RECENT_MAX]
+
+        if self.night is not None and self.night.contains(local):
+            self.night_items.append({
+                "time": local.isoformat(timespec="seconds"),
+                "app": app,
+                "title": clean(note.get("title")),
+                "subject": clean(note.get("subtitle")),
+                "alerts": alerts,
+            })
+            self.night_items.sort(key=lambda i: i["time"])
+            del self.night_items[:-NIGHT_ITEMS_MAX]
 
         self.prune(local)
         if save:
@@ -146,6 +196,8 @@ class WeeklyStats:
         for summary in self.summaries.values():
             summary["days"] = {d: v for d, v in summary["days"].items() if d >= cutoff}
             summary["recent"] = [r for r in summary["recent"] if r["time"][:10] >= cutoff]
+        two_days = self._local(now) - timedelta(days=2)
+        self.night_items = [i for i in self.night_items if datetime.fromisoformat(i["time"]) >= two_days]
 
     def save(self) -> None:
         directory = os.path.dirname(self.path) or "."
@@ -153,7 +205,7 @@ class WeeklyStats:
         fd, tmp = tempfile.mkstemp(dir=directory, prefix=".stats")
         with os.fdopen(fd, "w") as f:
             json.dump({"days": self.days, "summaries": self.summaries, "seen": self.seen,
-                       "history_imported_v2": self.history_imported}, f)
+                       "night": self.night_items, "history_imported_v2": self.history_imported}, f)
         os.replace(tmp, self.path)
         self.loaded = True
 
@@ -171,6 +223,26 @@ class WeeklyStats:
             "total": sum(apps.values()),
             "top_apps": [{"app": a, "count": n} for a, n in apps.most_common(20)],
             "per_day": per_day,
+        }
+
+    def last_night(self, now: datetime | None = None) -> dict | None:
+        """What came in during the current night, or the last one if it is over."""
+        if self.night is None:
+            return None
+        now = self._local(now)
+        start, end = self.night.latest(now)
+        items = [i for i in self.night_items if start <= datetime.fromisoformat(i["time"]) < end]
+        apps = Counter(i["app"] for i in items)
+        alerts = [{"time": i["time"], **a} for i in items for a in i["alerts"]]
+        return {
+            "total": len(items),
+            "window": self.night.spec,
+            "from": start.isoformat(timespec="seconds"),
+            "to": end.isoformat(timespec="seconds"),
+            "ongoing": start <= now < end,
+            "top_apps": [{"app": a, "count": n} for a, n in apps.most_common(10)],
+            "alerts": alerts[-30:][::-1],
+            "items": [{k: i[k] for k in ("time", "app", "title", "subject")} for i in items[-30:][::-1]],
         }
 
     def summary(self, rule: SummaryRule) -> dict:
