@@ -137,3 +137,41 @@ def test_health_check_push_is_only_an_event(tmp_path):
     topics = [t for t, _ in pub.client.published]
     assert topics == [mqtt.EVENT]                      # no counters, no last-notification update
     assert pub.counts.total == 0 and pub.stats.week()["total"] == 0
+
+
+def test_history_import_flag_and_recent_order(tmp_path):
+    path = str(tmp_path / "stats.json")
+    s = WeeklyStats(path, [ZABBIX])
+    s.record(mail("new", "[NEW] Problem: P"), NOW)
+    s.record(mail("old", "[OLD] Problem: P"), NOW - timedelta(days=2))   # imported later from history
+    assert [r["host"] for r in s.summary(ZABBIX)["recent"]] == ["NEW", "OLD"]
+    assert WeeklyStats(path, [ZABBIX]).history_imported is False
+    s.history_imported = True
+    s.save()
+    assert WeeklyStats(path, [ZABBIX]).history_imported is True
+
+
+def test_history_request_encodes_the_timestamp():
+    from app.ha import HomeAssistant
+
+    class Resp:
+        status = 200
+
+        async def json(self):
+            return [[{"state": "x"}]]
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class Session:
+        def get(self, url, params=None, headers=None):
+            self.url = url
+            return Resp()
+
+    session = Session()
+    states = asyncio.run(HomeAssistant(session, "t").history("sensor.x", "2026-11-05T07:00:00+00:00"))
+    assert states == [{"state": "x"}]
+    assert session.url.endswith("/history/period/2026-11-05T07%3A00%3A00%2B00%3A00")
