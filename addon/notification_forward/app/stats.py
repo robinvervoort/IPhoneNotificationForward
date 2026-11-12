@@ -84,12 +84,14 @@ class WeeklyStats:
         self.summaries: dict[str, dict] = {}
         self.seen: list[str] = []
         self.loaded = False
+        self.history_imported = False
         if os.path.exists(path):
             with open(path) as f:
                 data = json.load(f)
             self.days = data.get("days", {})
             self.summaries = data.get("summaries", {})
             self.seen = data.get("seen", [])
+            self.history_imported = data.get("history_imported", False)
             self.loaded = True
         self._seen_set = set(self.seen)
 
@@ -128,8 +130,9 @@ class WeeklyStats:
             for group in rule.groups:
                 values = bucket.setdefault(group, {})
                 values[hit[group]] = values.get(hit[group], 0) + 1
-            summary["recent"] = ([{"time": local.isoformat(timespec="seconds"), **hit}]
-                                 + summary["recent"])[:RECENT_MAX]
+            # Newest first; history imports can arrive older than what is already there.
+            summary["recent"] = sorted([{"time": local.isoformat(timespec="seconds"), **hit}, *summary["recent"]],
+                                       key=lambda r: r["time"], reverse=True)[:RECENT_MAX]
 
         self.prune(local)
         if save:
@@ -148,7 +151,8 @@ class WeeklyStats:
         os.makedirs(directory, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=directory, prefix=".stats")
         with os.fdopen(fd, "w") as f:
-            json.dump({"days": self.days, "summaries": self.summaries, "seen": self.seen}, f)
+            json.dump({"days": self.days, "summaries": self.summaries, "seen": self.seen,
+                       "history_imported": self.history_imported}, f)
         os.replace(tmp, self.path)
         self.loaded = True
 

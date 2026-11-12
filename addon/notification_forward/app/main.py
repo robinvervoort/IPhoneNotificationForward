@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -37,14 +37,19 @@ async def load_stats(ha: HomeAssistant, opts: dict) -> WeeklyStats:
         except Exception:  # noqa: BLE001
             log.warning("Unknown time zone %s; using the container's", name)
     stats = WeeklyStats(STATS_PATH, parse_rules(opts.get("summaries")), tz)
-    if stats.loaded:
+    if stats.history_imported:
         return stats
-    start = (datetime.now().astimezone() - timedelta(days=7)).isoformat(timespec="seconds")
+    # Once: fill the last week from Home Assistant's history. Notifications
+    # already counted are recognised by their ID and not counted twice.
+    start = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         states = await ha.history(opts["sensor_entity"], start)
     except aiohttp.ClientError as e:
-        log.warning("Could not read history to fill the 7-day statistics: %s", e)
-        states = []
+        log.warning("Could not read history to fill the 7-day statistics (retried on next start): %s", e)
+        return stats
+    if states is None:
+        log.warning("History unavailable; the 7-day statistics are filled on the next start")
+        return stats
     counted = 0
     for st in states:
         attrs = st.get("attributes") or {}
@@ -55,8 +60,9 @@ async def load_stats(ha: HomeAssistant, opts: dict) -> WeeklyStats:
         except (KeyError, ValueError):
             continue
         counted += stats.record(attrs, when, save=False)
+    stats.history_imported = True
     stats.save()
-    log.info("7-day statistics started from history: %d notifications", counted)
+    log.info("7-day statistics filled from history: %d notifications (%d states read)", counted, len(states))
     return stats
 
 

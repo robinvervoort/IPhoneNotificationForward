@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Awaitable, Callable
+from urllib.parse import quote
 
 import aiohttp
 
@@ -65,14 +66,15 @@ class HomeAssistant:
         except aiohttp.ClientError:
             return {}
 
-    async def history(self, entity_id: str, start: str) -> list[dict]:
-        """Every recorded state (with attributes) of one entity since `start`."""
+    async def history(self, entity_id: str, start: str) -> list[dict] | None:
+        """Every recorded state (with attributes) of one entity since `start`; None on failure."""
         params = {"filter_entity_id": entity_id, "significant_changes_only": "0"}
-        async with self._session.get(f"{API}/history/period/{start}", params=params,
+        # The timestamp sits in the path: encode it, or "+01:00" arrives as " 01:00".
+        async with self._session.get(f"{API}/history/period/{quote(start)}", params=params,
                                      headers=self._headers) as r:
             if r.status != 200:
                 log.warning("History for %s unavailable (HTTP %s)", entity_id, r.status)
-                return []
+                return None
             data = await r.json()
             return data[0] if data else []
 
