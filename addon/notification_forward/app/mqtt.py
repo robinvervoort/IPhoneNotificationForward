@@ -5,6 +5,10 @@ Entities (all under the device "iPhone Notification Forward"):
 * event   Notification        event types add / update / remove / remove_all
 * sensor  Notifications       total count of new notifications
 * sensor  <App> notifications one counter per app, created on its first notification
+* sensor  Notifications today
+* sensor  Notifications (7 days)  attributes: top_apps, per_day
+* sensor  <Summary> alerts (7 days)  one per configured alert summary (e.g. Zabbix):
+          attributes top_<group> (e.g. top_problem, top_host), per_day, recent
 
 Counters are `total_increasing`, so Home Assistant keeps long-term
 statistics (per hour/day/month) for them. Counts persist in /data.
@@ -18,8 +22,11 @@ import logging
 import os
 import re
 import tempfile
+from datetime import datetime, timedelta
 
 import aiomqtt
+
+from .stats import SummaryRule, WeeklyStats
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +37,9 @@ LAST_STATE = f"{PREFIX}/last/state"
 LAST_ATTRS = f"{PREFIX}/last/attributes"
 EVENT = f"{PREFIX}/event"
 EVENT_TYPES = ["add", "update", "remove", "remove_all"]
+TODAY = f"{PREFIX}/stats/today"
+WEEK_STATE = f"{PREFIX}/stats/week/state"
+WEEK_ATTRS = f"{PREFIX}/stats/week/attributes"
 
 
 def slug(text: str) -> str:
@@ -140,15 +150,61 @@ def app_config(version: str, bundle_id: str, name: str) -> tuple[str, dict]:
     }
 
 
+def today_config(version: str) -> tuple[str, dict]:
+    return f"{DISCOVERY}/sensor/{PREFIX}/today/config", {
+        **_common(version),
+        "name": "Notifications today",
+        "unique_id": f"{PREFIX}_today",
+        "default_entity_id": "sensor.iphone_notifications_today",
+        "state_topic": TODAY,
+        "unit_of_measurement": "notifications",
+        "icon": "mdi:calendar-today",
+    }
+
+
+def week_config(version: str) -> tuple[str, dict]:
+    return f"{DISCOVERY}/sensor/{PREFIX}/week/config", {
+        **_common(version),
+        "name": "Notifications (7 days)",
+        "unique_id": f"{PREFIX}_week",
+        "default_entity_id": "sensor.iphone_notifications_7_days",
+        "state_topic": WEEK_STATE,
+        "json_attributes_topic": WEEK_ATTRS,
+        "unit_of_measurement": "notifications",
+        "icon": "mdi:calendar-week",
+    }
+
+
+def summary_topics(rule: SummaryRule) -> tuple[str, str]:
+    key = slug(rule.name)
+    return f"{PREFIX}/stats/summary_{key}/state", f"{PREFIX}/stats/summary_{key}/attributes"
+
+
+def summary_config(version: str, rule: SummaryRule) -> tuple[str, dict]:
+    key = slug(rule.name)
+    state, attrs = summary_topics(rule)
+    return f"{DISCOVERY}/sensor/{PREFIX}/summary_{key}/config", {
+        **_common(version),
+        "name": f"{rule.name} alerts (7 days)",
+        "unique_id": f"{PREFIX}_summary_{key}",
+        "default_entity_id": f"sensor.iphone_{key}_alerts_7_days",
+        "state_topic": state,
+        "json_attributes_topic": attrs,
+        "unit_of_measurement": "alerts",
+        "icon": "mdi:alert-circle-outline",
+    }
+
+
 class MqttPublisher:
     """Keeps an MQTT connection and publishes discovery, states and counters."""
 
     def __init__(self, host: str, port: int, username: str | None, password: str | None,
-                 version: str, last_entity_id: str, counts: CountStore):
+                 version: str, last_entity_id: str, counts: CountStore, stats: WeeklyStats | None = None):
         self.host, self.port, self.username, self.password = host, port, username, password
         self.version = version
         self.last_entity_id = last_entity_id
         self.counts = counts
+        self.stats = stats
         self.client: aiomqtt.Client | None = None
         self.last_state: str | None = None
         self.last_attrs: dict | None = None
@@ -170,6 +226,12 @@ class MqttPublisher:
         for bundle_id, entry in self.counts.apps.items():
             await self._publish_app(bundle_id, entry["name"], discovery=True)
         await self._pub(f"{PREFIX}/count/total", str(self.counts.total))
+        if self.stats is not None:
+            await self._pub(*today_config(self.version))
+            await self._pub(*week_config(self.version))
+            for rule in self.stats.rules:
+                await self._pub(*summary_config(self.version, rule))
+            await self.publish_stats()
         if self.last_state is not None:
             await self._pub(LAST_STATE, self.last_state)
             await self._pub(LAST_ATTRS, self.last_attrs or {})
@@ -181,8 +243,29 @@ class MqttPublisher:
             await self._pub(topic, config)
         await self._pub(f"{PREFIX}/count/{slug(bundle_id)}", str(self.counts.apps[bundle_id]["count"]))
 
+    async def publish_stats(self) -> None:
+        if self.stats is None:
+            return
+        self.stats.prune()
+        await self._pub(TODAY, str(self.stats.today()))
+        week = self.stats.week()
+        await self._pub(WEEK_STATE, str(week["total"]))
+        await self._pub(WEEK_ATTRS, {k: v for k, v in week.items() if k != "total"})
+        for rule in self.stats.rules:
+            summary = self.stats.summary(rule)
+            state_topic, attrs_topic = summary_topics(rule)
+            await self._pub(state_topic, str(summary["total"]))
+            await self._pub(attrs_topic, {k: v for k, v in summary.items() if k != "total"})
+
+    async def event(self, note: dict) -> None:
+        """Only the event entity (internal notifications such as the health check)."""
+        await self._pub(EVENT, {"event_type": note.get("action", "add"),
+                                **{k: v for k, v in note.items() if k != "action"}}, retain=False)
+
     async def notification(self, note: dict, state: str, attrs: dict) -> None:
         action = note.get("action", "add")
+        if self.stats is not None and self.stats.record(note):
+            await self.publish_stats()
         if action == "add":
             bundle_id = note.get("bundle_id") or note.get("app") or "unknown"
             new_app = self.counts.increment(bundle_id, note.get("app") or bundle_id)
@@ -196,7 +279,20 @@ class MqttPublisher:
 
     # -- connection -------------------------------------------------------
 
+    async def _midnight(self) -> None:
+        """Roll the daily/weekly numbers over at local midnight."""
+        while True:
+            now = datetime.now().astimezone(self.stats.tz) if self.stats.tz else datetime.now().astimezone()
+            tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=5, microsecond=0)
+            await asyncio.sleep((tomorrow - now).total_seconds())
+            try:
+                await self.publish_stats()
+            except aiomqtt.MqttError as e:
+                log.warning("Could not publish the daily statistics: %s", e)
+
     async def run(self) -> None:
+        if self.stats is not None:
+            asyncio.get_running_loop().create_task(self._midnight())
         delay = 1
         will = aiomqtt.Will(AVAILABILITY, "offline", qos=1, retain=True)
         while True:

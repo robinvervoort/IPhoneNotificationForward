@@ -1,0 +1,139 @@
+import asyncio
+from datetime import datetime, timedelta, timezone
+
+from app import mqtt
+from app.ha import NotificationSink
+from app.stats import SummaryRule, WeeklyStats, parse_rules
+
+TZ = timezone(timedelta(hours=1))
+NOW = datetime(2026, 11, 12, 10, 0, tzinfo=TZ)
+ZABBIX = SummaryRule(name="Zabbix", app="Outlook", sender="zabbix",
+                     pattern=r"^\[(?P<host>[^\]]+)\] Problem: (?P<problem>.+)$",
+                     exclude="Escalation canceled")
+
+
+def mail(nid, subject, body="", sender="zabbix@example.com", action="add"):
+    return {"action": action, "id": nid, "bundle_id": "com.microsoft.Office.Outlook", "app": "Outlook",
+            "title": sender, "subtitle": subject, "body": body}
+
+
+def test_counts_apps_per_day_and_ranks_top_apps(tmp_path):
+    s = WeeklyStats(str(tmp_path / "stats.json"), [])
+    for i in range(3):
+        s.record({"action": "add", "id": f"w{i}", "bundle_id": "net.whatsapp.WhatsApp",
+                  "app": "‎WhatsApp"}, NOW)
+    s.record({"action": "add", "id": "o1", "app": "Outlook"}, NOW - timedelta(days=1))
+    week = s.week()
+    assert week["total"] == 4
+    assert week["top_apps"][0] == {"app": "WhatsApp", "count": 3}  # invisible mark stripped
+    assert week["per_day"] == {"2026-11-11": 1, "2026-11-12": 3}
+    assert s.today(NOW) == 3
+
+
+def test_only_new_notifications_count_once(tmp_path):
+    s = WeeklyStats(str(tmp_path / "stats.json"), [])
+    note = {"action": "add", "id": "1", "bundle_id": "b", "app": "A"}
+    assert s.record(note, NOW) is True
+    assert s.record(note, NOW) is False                          # same notification delivered again
+    assert s.record({**note, "action": "update"}, NOW) is False
+    assert s.record({"action": "remove", "id": "1", "bundle_id": "b"}, NOW) is False
+    assert s.week()["total"] == 1
+
+
+def test_days_older_than_a_week_drop_off(tmp_path):
+    s = WeeklyStats(str(tmp_path / "stats.json"), [ZABBIX])
+    s.record(mail("old", "[H1] Problem: Disk full"), NOW - timedelta(days=7))
+    s.record(mail("new", "[H2] Problem: Disk full"), NOW)
+    s.prune(NOW)
+    assert s.week()["total"] == 1
+    assert s.summary(ZABBIX)["top_host"] == [{"host": "H2", "count": 1}]
+
+
+def test_zabbix_summary_groups_problems_and_hosts(tmp_path):
+    s = WeeklyStats(str(tmp_path / "stats.json"), [ZABBIX])
+    s.record(mail("1", "[ATIME-P-PLS-039] Problem: Windows: FS [C:]: Disk is filling up"), NOW)
+    s.record(mail("2", "[ATIME-P-PLS-038] Problem: Windows: FS [C:]: Disk is filling up"), NOW)
+    s.record(mail("3", "[SQL-01] Problem: High CPU"), NOW)
+    s.record(mail("4", "[SQL-01] Problem: High CPU", body='NOTE: Escalation canceled: host "SQL-01" disabled.'),
+             NOW)                                                 # excluded
+    s.record(mail("5", "[SQL-01] Resolved in 5m: High CPU"), NOW)  # not a problem
+    s.record(mail("6", "[X] Problem: Y", sender="someone@example.com"), NOW)  # other sender
+    summary = s.summary(ZABBIX)
+    assert summary["total"] == 3
+    assert summary["top_problem"][0] == {"problem": "Windows: FS [C:]: Disk is filling up", "count": 2}
+    assert {"host": "SQL-01", "count": 1} in summary["top_host"]
+    assert summary["recent"][0]["host"] == "SQL-01" and summary["recent"][0]["time"].startswith("2026-11-12")
+    assert summary["per_day"] == {"2026-11-12": 3}
+
+
+def test_statistics_survive_a_restart(tmp_path):
+    path = str(tmp_path / "stats.json")
+    s = WeeklyStats(path, [ZABBIX])
+    s.record(mail("1", "[H] Problem: P"), NOW)
+    again = WeeklyStats(path, [ZABBIX])
+    assert again.loaded and again.week()["total"] == 1 and again.summary(ZABBIX)["total"] == 1
+    assert again.record(mail("1", "[H] Problem: P"), NOW) is False   # still remembered as seen
+
+
+def test_bad_rules_are_skipped():
+    rules = parse_rules([{"name": "ok", "pattern": "x"}, {"name": "bad", "pattern": "("}, {"pattern": "x"}])
+    assert [r.name for r in rules] == ["ok"]
+
+
+class FakeClient:
+    def __init__(self):
+        self.published = []
+
+    async def publish(self, topic, payload, qos=0, retain=False):
+        import json
+        self.published.append((topic, json.loads(payload) if payload.startswith(("{", "[")) else payload))
+
+
+class FakeHA:
+    def __init__(self):
+        self.events = []
+
+    async def fire_event(self, event_type, data):
+        self.events.append(data)
+
+    async def set_state(self, *a):
+        raise AssertionError("no REST sensor with MQTT")
+
+
+def make(tmp_path):
+    pub = mqtt.MqttPublisher("h", 1883, None, None, "0.3.0", "sensor.iphone_last_notification",
+                             mqtt.CountStore(str(tmp_path / "counts.json")),
+                             WeeklyStats(str(tmp_path / "stats.json"), [ZABBIX]))
+    pub.client = FakeClient()
+    return pub
+
+
+def test_statistics_entities_are_discovered_and_published(tmp_path):
+    pub = make(tmp_path)
+    asyncio.run(pub.publish_all())
+    configs = {t: p for t, p in pub.client.published if t.endswith("/config")}
+    ids = {c["default_entity_id"] for c in configs.values()}
+    assert {"sensor.iphone_notifications_today", "sensor.iphone_notifications_7_days",
+            "sensor.iphone_zabbix_alerts_7_days"} <= ids
+
+    sink = NotificationSink(FakeHA(), "iphone_notification", "sensor.iphone_last_notification", pub)
+    asyncio.run(sink.handle(mail("1", "[H] Problem: Disk full")))
+    published = dict(pub.client.published)
+    assert published[mqtt.WEEK_STATE] == "1"
+    assert published[mqtt.WEEK_ATTRS]["top_apps"] == [{"app": "Outlook", "count": 1}]
+    state_topic, attrs_topic = mqtt.summary_topics(ZABBIX)
+    assert published[state_topic] == "1"
+    assert published[attrs_topic]["top_problem"] == [{"problem": "Disk full", "count": 1}]
+
+
+def test_health_check_push_is_only_an_event(tmp_path):
+    pub = make(tmp_path)
+    ha = FakeHA()
+    sink = NotificationSink(ha, "iphone_notification", "sensor.iphone_last_notification", pub)
+    check = {"action": "add", "id": "nf-healthcheck", "bundle_id": "io.robbie.HomeAssistant",
+             "app": "Home Assistant", "title": "Notification Forward check", "thread": "nf-healthcheck"}
+    asyncio.run(sink.handle(check))
+    assert ha.events == [check]
+    topics = [t for t, _ in pub.client.published]
+    assert topics == [mqtt.EVENT]                      # no counters, no last-notification update
+    assert pub.counts.total == 0 and pub.stats.week()["total"] == 0

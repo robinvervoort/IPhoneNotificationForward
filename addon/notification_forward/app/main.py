@@ -6,21 +6,58 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import aiohttp
 
 from . import hci_trace
 from .ble import BleServer
 from .bridge import Bridge
-from .ha import HomeAssistant, NotificationSink
+from .ha import INTERNAL_THREADS, HomeAssistant, NotificationSink
 from .mqtt import CountStore, MqttPublisher
+from .stats import WeeklyStats, parse_rules
 
 OPTIONS_PATH = "/data/options.json"
 STATE_PATH = "/data/state.json"
 COUNTS_PATH = "/data/counts.json"
+STATS_PATH = "/data/stats.json"
 VERSION = os.environ.get("BUILD_VERSION", "")
 
 log = logging.getLogger("notification_forward")
+
+
+async def load_stats(ha: HomeAssistant, opts: dict) -> WeeklyStats:
+    """7-day statistics; on first start, filled from Home Assistant's history."""
+    tz = None
+    name = (await ha.config()).get("time_zone")
+    if name:
+        try:
+            tz = ZoneInfo(name)
+        except Exception:  # noqa: BLE001
+            log.warning("Unknown time zone %s; using the container's", name)
+    stats = WeeklyStats(STATS_PATH, parse_rules(opts.get("summaries")), tz)
+    if stats.loaded:
+        return stats
+    start = (datetime.now().astimezone() - timedelta(days=7)).isoformat(timespec="seconds")
+    try:
+        states = await ha.history(opts["sensor_entity"], start)
+    except aiohttp.ClientError as e:
+        log.warning("Could not read history to fill the 7-day statistics: %s", e)
+        states = []
+    counted = 0
+    for st in states:
+        attrs = st.get("attributes") or {}
+        if attrs.get("action") != "add" or attrs.get("thread") in INTERNAL_THREADS:
+            continue
+        try:
+            when = datetime.fromisoformat(st["last_updated"])
+        except (KeyError, ValueError):
+            continue
+        counted += stats.record(attrs, when, save=False)
+    stats.save()
+    log.info("7-day statistics started from history: %d notifications", counted)
+    return stats
 
 
 def load_options() -> dict:
@@ -32,6 +69,7 @@ def load_options() -> dict:
         "inbound_event_type": "notification_forward_inbound",
         "log_level": "info",
         "hci_trace": False,
+        "summaries": [],
     }
     if os.path.exists(OPTIONS_PATH):
         with open(OPTIONS_PATH) as f:
@@ -58,7 +96,7 @@ async def run() -> None:
             await ha.delete_state(opts["sensor_entity"])  # free the entity id for the MQTT sensor
             publisher = MqttPublisher(broker["host"], int(broker.get("port", 1883)), broker.get("username"),
                                       broker.get("password"), VERSION or "?", opts["sensor_entity"],
-                                      CountStore(COUNTS_PATH))
+                                      CountStore(COUNTS_PATH), await load_stats(ha, opts))
             loop.create_task(publisher.run())
         else:
             log.warning("MQTT unavailable: keeping the plain %s sensor (no device, no counters)",
