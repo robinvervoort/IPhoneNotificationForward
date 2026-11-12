@@ -17,6 +17,23 @@ webhook automation, iPhone app).
 | `inbound_event_type` | `notification_forward_inbound` | Event your webhook automation fires for internet deliveries |
 | `log_level` | `info` | `debug`, `info`, `warning`, `error` |
 | `hci_trace` | `false` | Low-level Bluetooth pairing trace (like `btmon`). Also needs `host_network: true` and `privileged: [NET_RAW]` in `config.yaml`, which are off by default |
+| `summaries` | Zabbix example | Alert summaries over the last 7 days, see below |
+
+### Alert summaries
+
+Each entry counts the notifications that match it over the last 7 days and
+groups them by the named groups of its `pattern`:
+
+| Field | Meaning |
+|---|---|
+| `name` | Name of the summary; gives `sensor.iphone_<name>_alerts_7_days` |
+| `app` | Only notifications from an app whose name contains this (optional) |
+| `sender` | Only notifications whose title (mail sender) contains this (optional) |
+| `pattern` | Regex on the subtitle (mail subject), or the title when there is none. Named groups such as `(?P<host>…)` become `top_host` lists |
+| `exclude` | Regex on subject and body; matching notifications are skipped (optional) |
+
+The default counts Zabbix problem mails in Outlook by `host` and `problem`,
+skipping "Escalation canceled" re-sends.
 
 ## Entities
 
@@ -29,6 +46,14 @@ With the Mosquitto broker app installed, the bridge publishes one device,
 | `event.iphone_notification` | One event per notification change (`add`, `update`, `remove`, `remove_all`) |
 | `sensor.iphone_notifications_total` | Count of new notifications |
 | `sensor.iphone_notifications_<app>` | Count per app, created on the app's first notification |
+| `sensor.iphone_notifications_today` | New notifications today |
+| `sensor.iphone_notifications_7_days` | New notifications in the last 7 days; attributes `top_apps` (20 noisiest apps) and `per_day` |
+| `sensor.iphone_<name>_alerts_7_days` | Per alert summary: matches in the last 7 days; attributes `top_<group>`, `per_day` and `recent` (last 10) |
+
+The 7-day numbers are kept in `/data/stats.json`. On the first start of 0.3.0
+they are filled from Home Assistant's history of the last-notification sensor.
+Home Assistant's own health-check push (`group: nf-healthcheck`) only fires the
+event and is not counted.
 
 Counters are `total_increasing`, so Home Assistant keeps hourly/daily/monthly
 statistics (use a *Statistics graph* card). Counts are stored in

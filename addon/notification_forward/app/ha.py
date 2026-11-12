@@ -57,6 +57,25 @@ class HomeAssistant:
             log.warning("Could not ask the Supervisor for MQTT: %s", e)
             return None
 
+    async def config(self) -> dict:
+        """Home Assistant's core config (time zone etc.); empty on failure."""
+        try:
+            async with self._session.get(f"{API}/config", headers=self._headers) as r:
+                return await r.json() if r.status == 200 else {}
+        except aiohttp.ClientError:
+            return {}
+
+    async def history(self, entity_id: str, start: str) -> list[dict]:
+        """Every recorded state (with attributes) of one entity since `start`."""
+        params = {"filter_entity_id": entity_id, "significant_changes_only": "0"}
+        async with self._session.get(f"{API}/history/period/{start}", params=params,
+                                     headers=self._headers) as r:
+            if r.status != 200:
+                log.warning("History for %s unavailable (HTTP %s)", entity_id, r.status)
+                return []
+            data = await r.json()
+            return data[0] if data else []
+
     async def listen(self, event_type: str, handler: Callable[[dict], Awaitable[None] | None]) -> None:
         """Subscribe to ``event_type`` forever, reconnecting on errors."""
         delay = 1
@@ -89,6 +108,11 @@ class HomeAssistant:
             delay = min(delay * 2, 60)
 
 
+# Notifications Home Assistant sends to itself through the iPhone (the
+# "Notification Forward: health check" automation uses group nf-healthcheck).
+INTERNAL_THREADS = {"nf-healthcheck"}
+
+
 class NotificationSink:
     """Turns decoded notifications into HA events and a sensor."""
 
@@ -104,6 +128,14 @@ class NotificationSink:
 
     async def handle(self, note: dict) -> None:
         action = note.get("action", "add")
+        if note.get("thread") in INTERNAL_THREADS:
+            # Home Assistant's own health-check push: only the event, so the
+            # check can see it; no counters, no "last notification".
+            log.info("%s: health check", action)
+            await self.ha.fire_event(self.event_type, note)
+            if self.mqtt is not None:
+                await self.mqtt.event(note)
+            return
         # Notification IDs are only unique per app, so key by app + ID.
         nid = f'{note.get("bundle_id") or ""}/{note.get("id", "")}'
         if action in ("add", "update"):
