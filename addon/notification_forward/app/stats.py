@@ -91,7 +91,8 @@ class WeeklyStats:
             self.days = data.get("days", {})
             self.summaries = data.get("summaries", {})
             self.seen = data.get("seen", [])
-            self.history_imported = data.get("history_imported", False)
+            # 0.3.0/0.3.1 saved "history_imported" after reading nothing; import again.
+            self.history_imported = data.get("history_imported_v2", False)
             self.loaded = True
         self._seen_set = set(self.seen)
 
@@ -152,7 +153,7 @@ class WeeklyStats:
         fd, tmp = tempfile.mkstemp(dir=directory, prefix=".stats")
         with os.fdopen(fd, "w") as f:
             json.dump({"days": self.days, "summaries": self.summaries, "seen": self.seen,
-                       "history_imported": self.history_imported}, f)
+                       "history_imported_v2": self.history_imported}, f)
         os.replace(tmp, self.path)
         self.loaded = True
 
