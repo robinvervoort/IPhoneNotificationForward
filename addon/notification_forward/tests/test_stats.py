@@ -176,3 +176,93 @@ def test_history_request_encodes_the_timestamp():
     assert states == [{"state": "x"}]
     assert session.url.endswith("/history/period/2026-11-05T07%3A00%3A00%2B00%3A00")
     assert session.params["end_time"].endswith("Z")    # else Home Assistant stops after one day
+
+
+# -- night summary ---------------------------------------------------------
+
+from app.stats import NightWindow  # noqa: E402
+
+
+def at(day, hh, mm=0):
+    return datetime(2026, 11, day, hh, mm, tzinfo=TZ)
+
+
+def test_night_window_across_midnight():
+    night = NightWindow("23:00-06:30")
+    assert night.contains(at(12, 23, 5)) and night.contains(at(13, 2)) and night.contains(at(13, 6, 29))
+    assert not night.contains(at(13, 6, 30)) and not night.contains(at(13, 14))
+    # during the night: the running one; during the day: the one that ended this morning
+    assert night.latest(at(13, 2)) == (at(12, 23), at(13, 6, 30))
+    assert night.latest(at(13, 14)) == (at(12, 23), at(13, 6, 30))
+    assert night.latest(at(13, 23, 30)) == (at(13, 23), at(14, 6, 30))
+
+
+def test_last_night_lists_notifications_and_alerts(tmp_path):
+    s = WeeklyStats(str(tmp_path / "stats.json"), [ZABBIX], TZ, NightWindow("23:00-06:30"))
+    s.record(mail("day", "[DAY] Problem: P"), at(12, 15))                     # daytime: not in the night
+    s.record(mail("z1", "[SRV-1] Problem: Disk full"), at(12, 23, 40))
+    s.record({"action": "add", "id": "w", "app": "WhatsApp", "title": "Mom"}, at(13, 2, 10))
+    s.record(mail("z2", "[SRV-2] Resolved in 5m: Disk full"), at(13, 3))      # night, but no alert
+    night = s.last_night(at(13, 8))
+    assert night["total"] == 3 and night["ongoing"] is False
+    assert night["from"].startswith("2026-11-12T23:00") and night["to"].startswith("2026-11-13T06:30")
+    assert night["top_apps"][0] == {"app": "Outlook", "count": 2}
+    assert [(a["summary"], a["host"]) for a in night["alerts"]] == [("Zabbix", "SRV-1")]
+    assert [i["app"] for i in night["items"]] == ["Outlook", "WhatsApp", "Outlook"]   # newest first
+    assert WeeklyStats(str(tmp_path / "stats.json"), [ZABBIX], TZ,
+                       NightWindow("23:00-06:30")).last_night(at(13, 8))["total"] == 3   # persisted
+
+
+def test_no_night_summary_without_a_window(tmp_path):
+    s = WeeklyStats(str(tmp_path / "stats.json"), [])
+    s.record({"action": "add", "id": "1", "app": "A"}, at(13, 2))
+    assert s.last_night() is None and s.night_items == []
+
+
+def test_night_sensor_is_published(tmp_path):
+    pub = mqtt.MqttPublisher("h", 1883, None, None, "0.4.0", "sensor.iphone_last_notification",
+                             mqtt.CountStore(str(tmp_path / "counts.json")),
+                             WeeklyStats(str(tmp_path / "stats.json"), [ZABBIX], TZ, NightWindow("00:00-23:59")))
+    pub.client = FakeClient()
+    asyncio.run(pub.publish_all())
+    configs = {p["default_entity_id"] for t, p in pub.client.published if t.endswith("/config")}
+    assert "sensor.iphone_notifications_last_night" in configs
+    assert dict(pub.client.published)[mqtt.NIGHT_ATTRS]["window"] == "00:00-23:59"
+
+
+# -- heartbeat ---------------------------------------------------------------
+
+def test_heartbeat_pings_while_home_assistant_answers_and_fails_otherwise(monkeypatch):
+    from app import main
+
+    answers = [True, False]
+    hits = []
+
+    class HA:
+        async def ping(self):
+            return answers.pop(0)
+
+    class Resp:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class Session:
+        def get(self, url, timeout=None):
+            hits.append(url)
+            return Resp()
+
+    async def fake_sleep(_):
+        if not answers:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(main.asyncio, "sleep", fake_sleep)
+    try:
+        asyncio.run(main.heartbeat(Session(), HA(), "https://hc-ping.com/abc"))
+    except asyncio.CancelledError:
+        pass
+    assert hits == ["https://hc-ping.com/abc", "https://hc-ping.com/abc/fail"]

@@ -1,5 +1,5 @@
 name: iPhone Notification Forward
-version: "0.3.2"
+version: "0.4.0"
 slug: notification_forward
 description: Receive your iPhone's notifications in Home Assistant via Apple notification forwarding (EU)
 url: https://github.com/robinvervoort/IPhoneNotificationForward
@@ -28,6 +28,7 @@ options:
       sender: zabbix
       pattern: '^\[(?P<host>[^\]]+)\] Problem: (?P<problem>.+)$'
       exclude: Escalation canceled
+  night: "23:00-06:30"
 schema:
   adapter: str
   device_name: str
@@ -42,3 +43,5 @@ schema:
       sender: str?
       pattern: str
       exclude: str?
+  night: match(^(\d\d:\d\d-\d\d:\d\d)?$)
+  heartbeat_url: url?

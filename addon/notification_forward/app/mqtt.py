@@ -7,6 +7,8 @@ Entities (all under the device "iPhone Notification Forward"):
 * sensor  <App> notifications one counter per app, created on its first notification
 * sensor  Notifications today
 * sensor  Notifications (7 days)  attributes: top_apps, per_day
+* sensor  Notifications last night  the night window (e.g. 23:00-06:30): top_apps,
+          alerts (summary matches), items
 * sensor  <Summary> alerts (7 days)  one per configured alert summary (e.g. Zabbix):
           attributes top_<group> (e.g. top_problem, top_host), per_day, recent
 
@@ -22,7 +24,7 @@ import logging
 import os
 import re
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import aiomqtt
 
@@ -40,6 +42,8 @@ EVENT_TYPES = ["add", "update", "remove", "remove_all"]
 TODAY = f"{PREFIX}/stats/today"
 WEEK_STATE = f"{PREFIX}/stats/week/state"
 WEEK_ATTRS = f"{PREFIX}/stats/week/attributes"
+NIGHT_STATE = f"{PREFIX}/stats/night/state"
+NIGHT_ATTRS = f"{PREFIX}/stats/night/attributes"
 
 
 def slug(text: str) -> str:
@@ -175,6 +179,19 @@ def week_config(version: str) -> tuple[str, dict]:
     }
 
 
+def night_config(version: str) -> tuple[str, dict]:
+    return f"{DISCOVERY}/sensor/{PREFIX}/night/config", {
+        **_common(version),
+        "name": "Notifications last night",
+        "unique_id": f"{PREFIX}_night",
+        "default_entity_id": "sensor.iphone_notifications_last_night",
+        "state_topic": NIGHT_STATE,
+        "json_attributes_topic": NIGHT_ATTRS,
+        "unit_of_measurement": "notifications",
+        "icon": "mdi:weather-night",
+    }
+
+
 def summary_topics(rule: SummaryRule) -> tuple[str, str]:
     key = slug(rule.name)
     return f"{PREFIX}/stats/summary_{key}/state", f"{PREFIX}/stats/summary_{key}/attributes"
@@ -229,6 +246,8 @@ class MqttPublisher:
         if self.stats is not None:
             await self._pub(*today_config(self.version))
             await self._pub(*week_config(self.version))
+            if self.stats.night is not None:
+                await self._pub(*night_config(self.version))
             for rule in self.stats.rules:
                 await self._pub(*summary_config(self.version, rule))
             await self.publish_stats()
@@ -251,6 +270,10 @@ class MqttPublisher:
         week = self.stats.week()
         await self._pub(WEEK_STATE, str(week["total"]))
         await self._pub(WEEK_ATTRS, {k: v for k, v in week.items() if k != "total"})
+        night = self.stats.last_night()
+        if night is not None:
+            await self._pub(NIGHT_STATE, str(night["total"]))
+            await self._pub(NIGHT_ATTRS, {k: v for k, v in night.items() if k != "total"})
         for rule in self.stats.rules:
             summary = self.stats.summary(rule)
             state_topic, attrs_topic = summary_topics(rule)
@@ -279,20 +302,20 @@ class MqttPublisher:
 
     # -- connection -------------------------------------------------------
 
-    async def _midnight(self) -> None:
-        """Roll the daily/weekly numbers over at local midnight."""
+    async def _periodic(self) -> None:
+        """Every 10 minutes (on the clock): roll over the day at midnight and
+        the night summary when the night window starts or ends."""
         while True:
-            now = datetime.now().astimezone(self.stats.tz) if self.stats.tz else datetime.now().astimezone()
-            tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=5, microsecond=0)
-            await asyncio.sleep((tomorrow - now).total_seconds())
+            now = datetime.now()
+            await asyncio.sleep(600 - (now.minute % 10) * 60 - now.second + 5)
             try:
                 await self.publish_stats()
             except aiomqtt.MqttError as e:
-                log.warning("Could not publish the daily statistics: %s", e)
+                log.warning("Could not publish the statistics: %s", e)
 
     async def run(self) -> None:
         if self.stats is not None:
-            asyncio.get_running_loop().create_task(self._midnight())
+            asyncio.get_running_loop().create_task(self._periodic())
         delay = 1
         will = aiomqtt.Will(AVAILABILITY, "offline", qos=1, retain=True)
         while True:

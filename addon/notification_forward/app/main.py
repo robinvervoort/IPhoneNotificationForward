@@ -16,7 +16,7 @@ from .ble import BleServer
 from .bridge import Bridge
 from .ha import INTERNAL_THREADS, HomeAssistant, NotificationSink
 from .mqtt import CountStore, MqttPublisher
-from .stats import WeeklyStats, parse_rules
+from .stats import NightWindow, WeeklyStats, parse_rules
 
 OPTIONS_PATH = "/data/options.json"
 STATE_PATH = "/data/state.json"
@@ -36,7 +36,13 @@ async def load_stats(ha: HomeAssistant, opts: dict) -> WeeklyStats:
             tz = ZoneInfo(name)
         except Exception:  # noqa: BLE001
             log.warning("Unknown time zone %s; using the container's", name)
-    stats = WeeklyStats(STATS_PATH, parse_rules(opts.get("summaries")), tz)
+    night = None
+    if opts.get("night"):
+        try:
+            night = NightWindow(opts["night"])
+        except ValueError:
+            log.warning("Ignoring night %r: use HH:MM-HH:MM", opts["night"])
+    stats = WeeklyStats(STATS_PATH, parse_rules(opts.get("summaries")), tz, night)
     if stats.history_imported:
         return stats
     # Once: fill the last week from Home Assistant's history. Notifications
@@ -66,6 +72,29 @@ async def load_stats(ha: HomeAssistant, opts: dict) -> WeeklyStats:
     return stats
 
 
+HEARTBEAT_INTERVAL = 60
+
+
+async def heartbeat(session: aiohttp.ClientSession, ha: HomeAssistant, url: str) -> None:
+    """Dead man's switch: ping an outside monitor (e.g. healthchecks.io) every
+    minute while Home Assistant answers, and its /fail URL when it doesn't. If
+    the pings stop (host, Home Assistant or this app down), the monitor alerts."""
+    last_ok = None
+    while True:
+        ok = await ha.ping()
+        target = url if ok else url.rstrip("/") + "/fail"
+        try:
+            async with session.get(target, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                sent = r.status < 300
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            sent = False
+        if ok != last_ok:
+            log.info("Heartbeat: Home Assistant %s%s", "answers" if ok else "does NOT answer",
+                     "" if sent else " (could not reach the heartbeat URL)")
+            last_ok = ok
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
+
+
 def load_options() -> dict:
     defaults = {
         "adapter": "hci0",
@@ -76,6 +105,8 @@ def load_options() -> dict:
         "log_level": "info",
         "hci_trace": False,
         "summaries": [],
+        "night": "23:00-06:30",
+        "heartbeat_url": "",
     }
     if os.path.exists(OPTIONS_PATH):
         with open(OPTIONS_PATH) as f:
@@ -119,6 +150,9 @@ async def run() -> None:
                 bridge.internet_data(data)
             except Exception as e:  # noqa: BLE001
                 log.warning("Internet delivery rejected: %s", e)
+
+        if opts.get("heartbeat_url"):
+            loop.create_task(heartbeat(session, ha, opts["heartbeat_url"]))
 
         if opts.get("hci_trace"):
             hci_trace.start(loop)
