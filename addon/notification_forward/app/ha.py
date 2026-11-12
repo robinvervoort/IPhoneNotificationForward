@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Awaitable, Callable
 from urllib.parse import quote
 
@@ -68,7 +69,9 @@ class HomeAssistant:
 
     async def history(self, entity_id: str, start: str) -> list[dict] | None:
         """Every recorded state (with attributes) of one entity since `start`; None on failure."""
-        params = {"filter_entity_id": entity_id, "significant_changes_only": "0"}
+        # Without end_time Home Assistant returns only the first day after `start`.
+        end = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        params = {"filter_entity_id": entity_id, "significant_changes_only": "0", "end_time": end}
         # The timestamp sits in the path: encode it, or "+01:00" arrives as " 01:00".
         async with self._session.get(f"{API}/history/period/{quote(start)}", params=params,
                                      headers=self._headers) as r:

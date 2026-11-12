@@ -168,10 +168,11 @@ def test_history_request_encodes_the_timestamp():
 
     class Session:
         def get(self, url, params=None, headers=None):
-            self.url = url
+            self.url, self.params = url, params
             return Resp()
 
     session = Session()
     states = asyncio.run(HomeAssistant(session, "t").history("sensor.x", "2026-11-05T07:00:00+00:00"))
     assert states == [{"state": "x"}]
     assert session.url.endswith("/history/period/2026-11-05T07%3A00%3A00%2B00%3A00")
+    assert session.params["end_time"].endswith("Z")    # else Home Assistant stops after one day
