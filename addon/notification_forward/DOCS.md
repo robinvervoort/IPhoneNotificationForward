@@ -58,7 +58,7 @@ With the Mosquitto broker app installed, the bridge publishes one device,
 | `sensor.iphone_notifications_total` | Count of new notifications |
 | `sensor.iphone_notifications_<app>` | Count per app, created on the app's first notification |
 | `sensor.iphone_notifications_today` | New notifications today |
-| `sensor.iphone_notifications_7_days` | New notifications in the last 7 days; attributes `top_apps` (20 noisiest apps) and `per_day` |
+| `sensor.iphone_notifications_7_days` | New notifications in the last 7 days; attributes `top_apps` (20 noisiest apps), `per_day` and `latest` (the 10 most recent notifications, any time) |
 | `sensor.iphone_notifications_last_night` | Notifications in the current night window, or the last one when it is over; attributes `from`, `to`, `ongoing`, `top_apps`, `alerts` (summary matches) and `items` (latest 30) |
 | `sensor.iphone_<name>_alerts_7_days` | Per alert summary: matches in the last 7 days; attributes `top_<group>`, `per_day` and `recent` (last 10) |
 
