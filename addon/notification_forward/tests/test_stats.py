@@ -286,3 +286,56 @@ def test_latest_and_night_items_keep_the_start_of_the_text(tmp_path):
     latest = s.week()["latest"][0]
     assert latest["subject"] == "" and latest["text"] == "x" * 120
     assert s.last_night(at(13, 8))["items"][0]["text"] == "x" * 120
+
+
+# -- night follows sleep mode ------------------------------------------------
+
+from app.stats import SleepPeriods  # noqa: E402
+
+
+def test_night_follows_sleep_mode(tmp_path):
+    path = str(tmp_path / "stats.json")
+    sleep = SleepPeriods("input_boolean.robin_sleeping")
+    s = WeeklyStats(path, [ZABBIX], TZ, sleep)
+    assert s.last_night(at(13, 8))["from"] is None                       # nothing recorded yet
+
+    s.record(mail("before", "[H] Problem: P"), at(12, 22, 30))            # awake: not in the night
+    sleep.start(at(12, 22, 45))
+    s.record(mail("z1", "[H] Problem: P"), at(13, 1))
+    night = s.last_night(at(13, 2))
+    assert night["ongoing"] is True and night["total"] == 1 and night["window"] == "sleep mode"
+
+    sleep.stop(at(13, 7, 10))
+    s.record({"action": "add", "id": "w", "app": "WhatsApp"}, at(13, 7, 20))   # awake again
+    s.save()
+    night = s.last_night(at(13, 9))
+    assert night["ongoing"] is False and night["total"] == 1
+    assert night["from"].startswith("2026-11-12T22:45") and night["to"].startswith("2026-11-13T07:10")
+
+    again = WeeklyStats(path, [ZABBIX], TZ, SleepPeriods("input_boolean.robin_sleeping"))
+    assert again.night.periods == sleep.periods and again.last_night(at(13, 9))["total"] == 1
+
+
+def test_follow_sleep_records_the_switch_changes(monkeypatch, tmp_path):
+    from app import main
+
+    sleep = SleepPeriods("input_boolean.robin_sleeping")
+    stats = WeeklyStats(str(tmp_path / "stats.json"), [], TZ, sleep)
+    states = [{"state": "on", "last_changed": "2026-11-13T22:45:00+01:00"},
+              {"state": "on", "last_changed": "2026-11-13T22:45:00+01:00"},
+              {"state": "off", "last_changed": "2026-11-14T07:10:00+01:00"}]
+
+    class HA:
+        async def get_state(self, entity_id):
+            return states.pop(0)
+
+    async def fake_sleep(_):
+        if not states:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(main.asyncio, "sleep", fake_sleep)
+    try:
+        asyncio.run(main.follow_sleep(HA(), stats, None))
+    except asyncio.CancelledError:
+        pass
+    assert sleep.periods == [["2026-11-13T22:45:00+01:00", "2026-11-14T07:10:00+01:00"]]

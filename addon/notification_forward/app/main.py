@@ -16,7 +16,7 @@ from .ble import BleServer
 from .bridge import Bridge
 from .ha import INTERNAL_THREADS, HomeAssistant, NotificationSink
 from .mqtt import CountStore, MqttPublisher
-from .stats import NightWindow, WeeklyStats, parse_rules
+from .stats import NightWindow, SleepPeriods, WeeklyStats, parse_rules
 
 OPTIONS_PATH = "/data/options.json"
 STATE_PATH = "/data/state.json"
@@ -37,7 +37,9 @@ async def load_stats(ha: HomeAssistant, opts: dict) -> WeeklyStats:
         except Exception:  # noqa: BLE001
             log.warning("Unknown time zone %s; using the container's", name)
     night = None
-    if opts.get("night"):
+    if opts.get("night_entity"):
+        night = SleepPeriods(opts["night_entity"])
+    elif opts.get("night"):
         try:
             night = NightWindow(opts["night"])
         except ValueError:
@@ -73,6 +75,29 @@ async def load_stats(ha: HomeAssistant, opts: dict) -> WeeklyStats:
 
 
 HEARTBEAT_INTERVAL = 60
+SLEEP_POLL_INTERVAL = 30
+
+
+async def follow_sleep(ha: HomeAssistant, stats: WeeklyStats, publisher) -> None:
+    """Keep the night summary's sleep periods in step with the night_entity switch."""
+    night = stats.night
+    while True:
+        st = await ha.get_state(night.entity_id)
+        if st is not None and st.get("state") in ("on", "off"):
+            changed_at = datetime.fromisoformat(st["last_changed"])
+            asleep = st["state"] == "on"
+            if asleep != night.sleeping:
+                (night.start if asleep else night.stop)(changed_at)
+                stats.save()
+                log.info("Night summary: sleep mode %s at %s", "started" if asleep else "ended",
+                         changed_at.astimezone().strftime("%H:%M"))
+                if publisher is not None:
+                    try:
+                        await publisher.publish_stats()
+                    except Exception as e:  # noqa: BLE001 - MQTT reconnects on its own
+                        log.warning("Could not publish the night summary: %s", e)
+        await asyncio.sleep(SLEEP_POLL_INTERVAL)
+
 
 
 async def heartbeat(session: aiohttp.ClientSession, ha: HomeAssistant, url: str) -> None:
@@ -107,6 +132,7 @@ def load_options() -> dict:
         "summaries": [],
         "night": "23:00-06:30",
         "heartbeat_url": "",
+        "night_entity": "",
     }
     if os.path.exists(OPTIONS_PATH):
         with open(OPTIONS_PATH) as f:
@@ -150,6 +176,9 @@ async def run() -> None:
                 bridge.internet_data(data)
             except Exception as e:  # noqa: BLE001
                 log.warning("Internet delivery rejected: %s", e)
+
+        if publisher is not None and isinstance(publisher.stats.night, SleepPeriods):
+            loop.create_task(follow_sleep(ha, publisher.stats, publisher))
 
         if opts.get("heartbeat_url"):
             loop.create_task(heartbeat(session, ha, opts["heartbeat_url"]))

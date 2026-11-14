@@ -68,6 +68,14 @@ class HomeAssistant:
         except (aiohttp.ClientError, asyncio.TimeoutError):
             return False
 
+    async def get_state(self, entity_id: str) -> dict | None:
+        """Current state object of one entity, or None."""
+        try:
+            async with self._session.get(f"{API}/states/{entity_id}", headers=self._headers) as r:
+                return await r.json() if r.status == 200 else None
+        except aiohttp.ClientError:
+            return None
+
     async def config(self) -> dict:
         """Home Assistant's core config (time zone etc.); empty on failure."""
         try:

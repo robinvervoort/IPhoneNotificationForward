@@ -20,6 +20,7 @@ webhook automation, iPhone app).
 | `summaries` | Zabbix example | Alert summaries over the last 7 days, see below |
 | `night` | `23:00-06:30` | Night window for `sensor.iphone_notifications_last_night` (empty: no night summary) |
 | `heartbeat_url` | (unset) | Dead man's switch, see below |
+| `night_entity` | (unset) | An on/off entity (e.g. `input_boolean.robin_sleeping`, switched by an iPhone Shortcuts automation on the Sleep focus). When set, the night summary covers each on-to-off stretch of it instead of the fixed `night` hours |
 
 ### Heartbeat (Home Assistant down?)
 
