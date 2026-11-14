@@ -29,6 +29,7 @@ DAYS = 7
 SEEN_MAX = 1000
 RECENT_MAX = 10
 LATEST_MAX = 10         # most recent notifications, whatever the time
+TEXT_MAX = 120          # characters of the notification text kept for the dashboard
 NIGHT_ITEMS_MAX = 300   # notifications kept for the "last night" summary (about two nights)
 INVISIBLE = re.compile(r"[‎‏‪-‮⁦-⁩]")  # RTL/LTR marks (e.g. "‎WhatsApp")
 
@@ -183,18 +184,14 @@ class WeeklyStats:
             "app": app,
             "title": clean(note.get("title")),
             "subject": clean(note.get("subtitle")),
+            # Most apps send no subject, only a text: keep its start for the dashboard.
+            "text": clean(note.get("body"))[:TEXT_MAX],
         }
         self.latest = sorted([item, *self.latest], key=lambda i: datetime.fromisoformat(i["time"]),
                              reverse=True)[:LATEST_MAX]
 
         if self.night is not None and self.night.contains(local):
-            self.night_items.append({
-                "time": local.isoformat(timespec="seconds"),
-                "app": app,
-                "title": clean(note.get("title")),
-                "subject": clean(note.get("subtitle")),
-                "alerts": alerts,
-            })
+            self.night_items.append({**item, "alerts": alerts})
             self.night_items.sort(key=lambda i: i["time"])
             del self.night_items[:-NIGHT_ITEMS_MAX]
 
@@ -257,7 +254,8 @@ class WeeklyStats:
             "ongoing": start <= now < end,
             "top_apps": [{"app": a, "count": n} for a, n in apps.most_common(10)],
             "alerts": alerts[-30:][::-1],
-            "items": [{k: i[k] for k in ("time", "app", "title", "subject")} for i in items[-30:][::-1]],
+            "items": [{k: i.get(k, "") for k in ("time", "app", "title", "subject", "text")}
+                      for i in items[-30:][::-1]],
         }
 
     def summary(self, rule: SummaryRule) -> dict:
