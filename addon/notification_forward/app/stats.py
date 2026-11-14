@@ -107,9 +107,47 @@ class NightWindow:
         return at(yesterday, self.start), at(yesterday, self.end)
 
 
+class SleepPeriods:
+    """The night follows a Home Assistant switch (e.g. the iPhone's Sleep focus)
+    instead of fixed hours: each on-to-off stretch is one night."""
+
+    KEEP = 10
+
+    def __init__(self, entity_id: str):
+        self.entity_id = entity_id
+        self.spec = "sleep mode"
+        self.periods: list[list[str | None]] = []   # [start, end or None while sleeping]
+
+    @property
+    def sleeping(self) -> bool:
+        return bool(self.periods) and self.periods[-1][1] is None
+
+    def start(self, when: datetime) -> None:
+        if not self.sleeping:
+            self.periods.append([when.isoformat(timespec="seconds"), None])
+            del self.periods[:-self.KEEP]
+
+    def stop(self, when: datetime) -> None:
+        if self.sleeping:
+            self.periods[-1][1] = when.isoformat(timespec="seconds")
+
+    def contains(self, local: datetime) -> bool:
+        for start, end in self.periods:
+            if datetime.fromisoformat(start) <= local and (end is None or local < datetime.fromisoformat(end)):
+                return True
+        return False
+
+    def latest(self, now: datetime) -> tuple[datetime, datetime] | None:
+        """The current sleep if it is running (ends now), else the last one."""
+        if not self.periods:
+            return None
+        start, end = self.periods[-1]
+        return datetime.fromisoformat(start), datetime.fromisoformat(end) if end else now
+
+
 class WeeklyStats:
     def __init__(self, path: str, rules: list[SummaryRule], tz: tzinfo | None = None,
-                 night: NightWindow | None = None):
+                 night: "NightWindow | SleepPeriods | None" = None):
         self.path = path
         self.rules = rules
         self.tz = tz
@@ -132,6 +170,8 @@ class WeeklyStats:
             self.summaries = data.get("summaries", {})
             self.seen = data.get("seen", [])
             self.night_items = data.get("night", [])
+            if isinstance(night, SleepPeriods):
+                night.periods = data.get("sleep", [])
             self.latest = data.get("latest", [])
             # 0.3.0/0.3.1 saved "history_imported" after reading nothing; import again.
             self.history_imported = data.get("history_imported_v2", False)
@@ -216,6 +256,7 @@ class WeeklyStats:
         with os.fdopen(fd, "w") as f:
             json.dump({"days": self.days, "summaries": self.summaries, "seen": self.seen,
                        "night": self.night_items, "latest": self.latest,
+                       "sleep": self.night.periods if isinstance(self.night, SleepPeriods) else [],
                        "history_imported_v2": self.history_imported}, f)
         os.replace(tmp, self.path)
         self.loaded = True
@@ -242,8 +283,14 @@ class WeeklyStats:
         if self.night is None:
             return None
         now = self._local(now)
-        start, end = self.night.latest(now)
-        items = [i for i in self.night_items if start <= datetime.fromisoformat(i["time"]) < end]
+        window = self.night.latest(now)
+        if window is None:          # following sleep mode, but no sleep recorded yet
+            return {"total": 0, "window": self.night.spec, "from": None, "to": None, "ongoing": False,
+                    "top_apps": [], "alerts": [], "items": []}
+        start, end = window
+        ongoing = isinstance(self.night, SleepPeriods) and self.night.sleeping or start <= now < end
+        items = [i for i in self.night_items
+                 if start <= datetime.fromisoformat(i["time"]) and (ongoing or datetime.fromisoformat(i["time"]) < end)]
         apps = Counter(i["app"] for i in items)
         alerts = [{"time": i["time"], **a} for i in items for a in i["alerts"]]
         return {
@@ -251,7 +298,7 @@ class WeeklyStats:
             "window": self.night.spec,
             "from": start.isoformat(timespec="seconds"),
             "to": end.isoformat(timespec="seconds"),
-            "ongoing": start <= now < end,
+            "ongoing": ongoing,
             "top_apps": [{"app": a, "count": n} for a, n in apps.most_common(10)],
             "alerts": alerts[-30:][::-1],
             "items": [{k: i.get(k, "") for k in ("time", "app", "title", "subject", "text")}
