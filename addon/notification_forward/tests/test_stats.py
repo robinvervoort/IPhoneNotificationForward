@@ -278,3 +278,11 @@ def test_latest_keeps_the_ten_newest_whatever_the_time(tmp_path):
     assert len(latest) == 10
     assert [i["title"] for i in latest[:2]] == ["T11", "T10"] and latest[0]["app"] == "WhatsApp"
     assert WeeklyStats(path, []).week()["latest"] == latest                       # persisted
+
+
+def test_latest_and_night_items_keep_the_start_of_the_text(tmp_path):
+    s = WeeklyStats(str(tmp_path / "stats.json"), [], TZ, NightWindow("23:00-06:30"))
+    s.record({"action": "add", "id": "1", "app": "WhatsApp", "title": "Sigrid", "body": "x" * 300}, at(13, 2))
+    latest = s.week()["latest"][0]
+    assert latest["subject"] == "" and latest["text"] == "x" * 120
+    assert s.last_night(at(13, 8))["items"][0]["text"] == "x" * 120
