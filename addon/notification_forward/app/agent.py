@@ -62,6 +62,28 @@ class JustWorksAgent(ServiceInterface):
         log.info("Pairing cancelled")
 
 
+def pick_adapter(wanted: str, available: list[str]) -> str:
+    """The configured adapter if it exists, else the first one there is.
+
+    Linux renumbers a USB dongle (hci0 -> hci1) when it is detected again,
+    for example after a Home Assistant OS update or a VM reboot."""
+    adapters = sorted(a for a in available if a.startswith("hci"))
+    if wanted in adapters or not adapters:
+        return wanted
+    log.warning("Bluetooth adapter %s not found; using %s instead (set 'adapter' to it to hide this)",
+                wanted, adapters[0])
+    return adapters[0]
+
+
+async def resolve_adapter(wanted: str) -> str:
+    bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    try:
+        node = await bus.introspect("org.bluez", "/org/bluez")
+        return pick_adapter(wanted, [child.name for child in node.nodes])
+    finally:
+        bus.disconnect()
+
+
 async def setup_pairing(adapter: str) -> MessageBus:
     """Register the agent and make `adapter` pairable. Returns the bus to keep alive."""
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
