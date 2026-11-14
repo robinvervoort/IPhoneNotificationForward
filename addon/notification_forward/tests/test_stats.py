@@ -266,3 +266,15 @@ def test_heartbeat_pings_while_home_assistant_answers_and_fails_otherwise(monkey
     except asyncio.CancelledError:
         pass
     assert hits == ["https://hc-ping.com/abc", "https://hc-ping.com/abc/fail"]
+
+
+def test_latest_keeps_the_ten_newest_whatever_the_time(tmp_path):
+    path = str(tmp_path / "stats.json")
+    s = WeeklyStats(path, [], TZ, NightWindow("23:00-06:30"))
+    for i in range(12):
+        s.record({"action": "add", "id": str(i), "app": "‎WhatsApp", "title": f"T{i}"}, at(13, 7, i))
+    s.record({"action": "add", "id": "old", "app": "Old"}, at(12, 7))          # older, arrives late
+    latest = s.week()["latest"]
+    assert len(latest) == 10
+    assert [i["title"] for i in latest[:2]] == ["T11", "T10"] and latest[0]["app"] == "WhatsApp"
+    assert WeeklyStats(path, []).week()["latest"] == latest                       # persisted

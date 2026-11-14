@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 DAYS = 7
 SEEN_MAX = 1000
 RECENT_MAX = 10
+LATEST_MAX = 10         # most recent notifications, whatever the time
 NIGHT_ITEMS_MAX = 300   # notifications kept for the "last night" summary (about two nights)
 INVISIBLE = re.compile(r"[‎‏‪-‮⁦-⁩]")  # RTL/LTR marks (e.g. "‎WhatsApp")
 
@@ -114,6 +115,8 @@ class WeeklyStats:
         self.night = night
         # night: notifications that arrived inside the night window (newest last)
         self.night_items: list[dict] = []
+        # latest: the most recent notifications, newest first
+        self.latest: list[dict] = []
         # days: {"YYYY-MM-DD": {app: count}}
         # summaries: {rule: {"days": {day: {"total": n, "<group>": {value: n}}}, "recent": [...]}}
         self.days: dict[str, dict[str, int]] = {}
@@ -128,6 +131,7 @@ class WeeklyStats:
             self.summaries = data.get("summaries", {})
             self.seen = data.get("seen", [])
             self.night_items = data.get("night", [])
+            self.latest = data.get("latest", [])
             # 0.3.0/0.3.1 saved "history_imported" after reading nothing; import again.
             self.history_imported = data.get("history_imported_v2", False)
             self.loaded = True
@@ -174,6 +178,15 @@ class WeeklyStats:
             summary["recent"] = sorted([{"time": local.isoformat(timespec="seconds"), **hit}, *summary["recent"]],
                                        key=lambda r: r["time"], reverse=True)[:RECENT_MAX]
 
+        item = {
+            "time": local.isoformat(timespec="seconds"),
+            "app": app,
+            "title": clean(note.get("title")),
+            "subject": clean(note.get("subtitle")),
+        }
+        self.latest = sorted([item, *self.latest], key=lambda i: datetime.fromisoformat(i["time"]),
+                             reverse=True)[:LATEST_MAX]
+
         if self.night is not None and self.night.contains(local):
             self.night_items.append({
                 "time": local.isoformat(timespec="seconds"),
@@ -205,7 +218,8 @@ class WeeklyStats:
         fd, tmp = tempfile.mkstemp(dir=directory, prefix=".stats")
         with os.fdopen(fd, "w") as f:
             json.dump({"days": self.days, "summaries": self.summaries, "seen": self.seen,
-                       "night": self.night_items, "history_imported_v2": self.history_imported}, f)
+                       "night": self.night_items, "latest": self.latest,
+                       "history_imported_v2": self.history_imported}, f)
         os.replace(tmp, self.path)
         self.loaded = True
 
@@ -223,6 +237,7 @@ class WeeklyStats:
             "total": sum(apps.values()),
             "top_apps": [{"app": a, "count": n} for a, n in apps.most_common(20)],
             "per_day": per_day,
+            "latest": self.latest,
         }
 
     def last_night(self, now: datetime | None = None) -> dict | None:
