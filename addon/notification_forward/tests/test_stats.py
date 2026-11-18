@@ -339,3 +339,18 @@ def test_follow_sleep_records_the_switch_changes(monkeypatch, tmp_path):
     except asyncio.CancelledError:
         pass
     assert sleep.periods == [["2026-11-13T22:45:00+01:00", "2026-11-14T07:10:00+01:00"]]
+
+
+def test_summary_can_cover_more_days_than_the_week(tmp_path):
+    rule = SummaryRule(name="Zabbix", app="Outlook", sender="zabbix",
+                       pattern=r"^\[(?P<host>[^\]]+)\] Problem: (?P<problem>.+)$", days=8)
+    s = WeeklyStats(str(tmp_path / "stats.json"), [rule])
+    s.record(mail("d8", "[OLD] Problem: P"), NOW - timedelta(days=7))   # 8th day back
+    s.record(mail("d9", "[OLDER] Problem: P"), NOW - timedelta(days=8))  # 9th day: too old
+    s.record(mail("d1", "[NEW] Problem: P"), NOW)
+    s.prune(NOW)
+    summary = s.summary(rule)
+    assert summary["total"] == 2 and summary["days"] == 8
+    assert {h["host"] for h in summary["top_host"]} == {"OLD", "NEW"}
+    assert s.week()["total"] == 1                                        # apps still cover 7 days
+    assert parse_rules([{"name": "Z", "pattern": "x", "days": 8}])[0].days == 8
