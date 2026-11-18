@@ -17,7 +17,7 @@ webhook automation, iPhone app).
 | `inbound_event_type` | `notification_forward_inbound` | Event your webhook automation fires for internet deliveries |
 | `log_level` | `info` | `debug`, `info`, `warning`, `error` |
 | `hci_trace` | `false` | Low-level Bluetooth pairing trace (like `btmon`). Also needs `host_network: true` and `privileged: [NET_RAW]` in `config.yaml`, which are off by default |
-| `summaries` | Zabbix example | Alert summaries over the last 7 days, see below |
+| `summaries` | Zabbix example | Alert summaries over the last days (7 by default), see below |
 | `night` | `23:00-06:30` | Night window for `sensor.iphone_notifications_last_night` (empty: no night summary) |
 | `heartbeat_url` | (unset) | Dead man's switch, see below |
 | `night_entity` | (unset) | An on/off entity (e.g. `input_boolean.robin_sleeping`, switched by an iPhone Shortcuts automation on the Sleep focus). When set, the night summary covers each on-to-off stretch of it instead of the fixed `night` hours |
@@ -33,7 +33,7 @@ channels (e-mail, Pushover, ...), independent of Home Assistant.
 
 ### Alert summaries
 
-Each entry counts the notifications that match it over the last 7 days and
+Each entry counts the notifications that match it over the last `days` days (default 7) and
 groups them by the named groups of its `pattern`:
 
 | Field | Meaning |
@@ -43,6 +43,7 @@ groups them by the named groups of its `pattern`:
 | `sender` | Only notifications whose title (mail sender) contains this (optional) |
 | `pattern` | Regex on the subtitle (mail subject), or the title when there is none. Named groups such as `(?P<host>…)` become `top_host` lists |
 | `exclude` | Regex on subject and body; matching notifications are skipped (optional) |
+| `days` | How many days the summary covers, today included (optional, 1-31, default 7). The sensor keeps its `_7_days` entity ID; its name shows the real period |
 
 The default counts Zabbix problem mails in Outlook by `host` and `problem`,
 skipping "Escalation canceled" re-sends.

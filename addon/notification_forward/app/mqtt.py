@@ -9,7 +9,7 @@ Entities (all under the device "iPhone Notification Forward"):
 * sensor  Notifications (7 days)  attributes: top_apps, per_day
 * sensor  Notifications last night  the night window (e.g. 23:00-06:30): top_apps,
           alerts (summary matches), items
-* sensor  <Summary> alerts (7 days)  one per configured alert summary (e.g. Zabbix):
+* sensor  <Summary> alerts (N days)  one per configured alert summary (e.g. Zabbix), N = its days:
           attributes top_<group> (e.g. top_problem, top_host), per_day, recent
 
 Counters are `total_increasing`, so Home Assistant keeps long-term
@@ -202,7 +202,7 @@ def summary_config(version: str, rule: SummaryRule) -> tuple[str, dict]:
     state, attrs = summary_topics(rule)
     return f"{DISCOVERY}/sensor/{PREFIX}/summary_{key}/config", {
         **_common(version),
-        "name": f"{rule.name} alerts (7 days)",
+        "name": f"{rule.name} alerts ({rule.days} days)",
         "unique_id": f"{PREFIX}_summary_{key}",
         "default_entity_id": f"sensor.iphone_{key}_alerts_7_days",
         "state_topic": state,

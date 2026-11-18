@@ -53,6 +53,7 @@ class SummaryRule:
     app: str = ""
     sender: str = ""
     exclude: str = ""
+    days: int = DAYS        # how many days the summary covers (today included)
 
     def __post_init__(self):
         self._pattern = re.compile(self.pattern)
@@ -240,12 +241,17 @@ class WeeklyStats:
             self.save()
         return True
 
+    def _cutoff(self, days: int, now: datetime | None = None) -> str:
+        return (self._local(now).date() - timedelta(days=days - 1)).isoformat()
+
     def prune(self, now: datetime | None = None) -> None:
-        cutoff = (self._local(now).date() - timedelta(days=DAYS - 1)).isoformat()
+        cutoff = self._cutoff(DAYS, now)
         self.days = {d: v for d, v in self.days.items() if d >= cutoff}
-        for summary in self.summaries.values():
-            summary["days"] = {d: v for d, v in summary["days"].items() if d >= cutoff}
-            summary["recent"] = [r for r in summary["recent"] if r["time"][:10] >= cutoff]
+        rule_days = {r.name: r.days for r in self.rules}
+        for name, summary in self.summaries.items():
+            keep = self._cutoff(rule_days.get(name, DAYS), now)
+            summary["days"] = {d: v for d, v in summary["days"].items() if d >= keep}
+            summary["recent"] = [r for r in summary["recent"] if r["time"][:10] >= keep]
         two_days = self._local(now) - timedelta(days=2)
         self.night_items = [i for i in self.night_items if datetime.fromisoformat(i["time"]) >= two_days]
 
@@ -315,6 +321,7 @@ class WeeklyStats:
                 groups[g].update(bucket.get(g, {}))
         result = {
             "total": total,
+            "days": rule.days,
             "per_day": {d: b.get("total", 0) for d, b in sorted(data["days"].items())},
             "recent": data["recent"],
         }
@@ -328,7 +335,8 @@ def parse_rules(raw: list[dict]) -> list[SummaryRule]:
     for item in raw or []:
         try:
             rules.append(SummaryRule(name=item["name"], pattern=item["pattern"], app=item.get("app") or "",
-                                     sender=item.get("sender") or "", exclude=item.get("exclude") or ""))
-        except (KeyError, re.error) as e:
+                                     sender=item.get("sender") or "", exclude=item.get("exclude") or "",
+                                     days=int(item.get("days") or DAYS)))
+        except (KeyError, ValueError, re.error) as e:
             log.warning("Ignoring summary %r: %s", item.get("name"), e)
     return rules
